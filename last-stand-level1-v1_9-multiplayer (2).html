@@ -1,0 +1,2312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Last Stand — prototype (PRD v1.9)</title>
+<style>
+/* ============================================================
+   COLOUR GRAMMAR — PRD 11.5. One meaning per colour, no reuse.
+   ============================================================ */
+:root{
+  --tank:#2C4A7C; --healer:#1D9E75; --support:#4B3F8F; --ranger:#2F5C38;
+  --tank-lt:#4E74AE; --healer-lt:#35C795; --support-lt:#7A6BD0; --ranger-lt:#4E8C5C;
+  --gold:#C9A227; --gold-lt:#EFB63F;
+  --amber:#EFB63F;      /* telegraph / wind-up ONLY */
+  --impact:#D94F3D;     /* damage landing + enemy attention ONLY */
+  --buff:#F2C94C;       /* buff active */
+  --heal:#1D9E75;       /* healing */
+  --shield:#7F77DD;     /* damage prevention */
+  --ink:#0E1210; --ink2:#161d1a; --panel:#131a18; --line:#2a3833;
+  --txt:#E8EDE9; --txt-dim:#93A29B;
+  --stone:#D9D2C2;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--ink);color:var(--txt);
+  font-family:ui-sans-serif,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+#app{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+#stage{position:relative;width:1100px;max-width:100vw;height:100%;max-height:100vh;display:flex;flex-direction:column}
+
+/* ---------- shared chrome ---------- */
+.screen{position:absolute;inset:0;display:none;flex-direction:column;overflow:auto;padding:18px 22px;background:var(--ink)}
+.screen.on{display:flex}
+h1{font-size:30px;letter-spacing:.14em;text-transform:uppercase;margin:0 0 2px;font-weight:800}
+h2{font-size:15px;letter-spacing:.16em;text-transform:uppercase;color:var(--txt-dim);margin:16px 0 8px;font-weight:700}
+.sub{color:var(--txt-dim);font-size:13px;line-height:1.5;max-width:72ch}
+.btn{display:inline-block;padding:9px 18px;border:1px solid var(--line);border-radius:3px;
+  background:#1a2320;letter-spacing:.09em;text-transform:uppercase;font-size:12px;font-weight:700}
+.btn:hover{background:#22302b}
+.btn.primary{background:var(--gold);color:#20180a;border-color:var(--gold-lt)}
+.btn.primary:hover{background:var(--gold-lt)}
+.btn[disabled]{opacity:.35;pointer-events:none}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.tag{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--txt-dim)}
+
+/* ---------- class select ---------- */
+.classGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:10px 0 4px}
+.classCard{border:1px solid var(--line);border-radius:4px;padding:12px;background:var(--panel);text-align:left;position:relative}
+.classCard:hover{border-color:#41564e}
+.classCard.sel{border-color:var(--gold);box-shadow:inset 0 0 0 1px var(--gold)}
+.classCard .nm{font-weight:800;letter-spacing:.1em;text-transform:uppercase;font-size:14px}
+.classCard .band{height:5px;border-radius:2px;margin:6px 0 8px}
+.classCard .ab{font-size:11px;color:var(--txt-dim);line-height:1.6}
+
+/* ---------- circle selection ---------- */
+/* Was absolutely positioned at fixed pixel offsets, which overflowed the board on the
+   right and let the roster ride up over the walkway circles at some window sizes. A grid
+   cannot overlap itself, so the whole class of bug goes away rather than being nudged. */
+#selBoard{display:grid;grid-template-columns:repeat(4,1fr);gap:52px 18px;
+  width:min(720px,100%);margin:20px auto 24px}
+.selCircle{position:relative;border-radius:50%;border:2px dashed #4a5b54;background:#1b2320;
+  aspect-ratio:1.75/1;min-height:56px;
+  display:flex;align-items:center;justify-content:center;flex-direction:column;gap:2px;transition:.12s}
+.selCircle:hover{background:#243029}
+.selCircle .cid{font-size:10px;color:#6d7d76;letter-spacing:.1em}
+.selCircle .who{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+.selCircle.taken{border-style:solid}
+/* the column pairing Club Slam punishes, drawn into the row gap */
+.selCircle.front::after{content:"";position:absolute;left:50%;top:100%;height:52px;
+  border-left:1px dashed #33443d;pointer-events:none}
+.selCircle.castle{transform:scale(1.07)}
+
+/* ---------- game ---------- */
+#gameWrap{position:relative;flex:1;display:none}
+#gameWrap.on{display:block}
+#cv{position:absolute;inset:0;width:100%;height:100%;display:block}
+.hud{position:absolute;pointer-events:none;font-variant-numeric:tabular-nums}
+#hudParty{top:10px;left:10px;display:flex;flex-direction:column;gap:5px}
+.pcard{width:186px;background:rgba(11,16,14,.82);border:1px solid var(--line);border-left-width:4px;
+  border-radius:3px;padding:5px 7px}
+.pcard.dead{opacity:.42}
+.pcard .top{display:flex;justify-content:space-between;font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:800}
+.pcard .hpbar{height:7px;background:#26302c;border-radius:2px;margin-top:3px;overflow:hidden;position:relative}
+.pcard .hpfill{height:100%;background:var(--heal);transition:width .12s}
+.pcard .buffs{display:flex;gap:3px;margin-top:3px;height:9px}
+.bpip{height:9px;flex:0 0 auto;padding:0 4px;border-radius:2px;font-size:8px;line-height:9px;font-weight:800;color:#151510}
+#hudWave{top:10px;right:10px;text-align:right}
+#hudWave .wv{font-size:26px;font-weight:800;letter-spacing:.1em}
+#hudWave .lv{font-size:10px;letter-spacing:.2em;color:var(--txt-dim);text-transform:uppercase}
+/* The castle bar used to be a top-centre overlay, where it collided with the party cards.
+   It now lives on the wall itself (see drawCastle) — the objective belongs where the castle
+   is, in the gap between the front row and the walkway, not floating over someone's HP. */
+#hudBoss{top:8px;left:50%;transform:translateX(-50%);width:520px;display:none}
+#hudBoss.on{display:block}
+#hudBoss .bn{text-align:center;font-size:13px;font-weight:800;letter-spacing:.22em;text-transform:uppercase;margin-bottom:3px}
+#hudBoss .bbar{height:12px;background:#26302c;border:1px solid var(--line);border-radius:2px;overflow:hidden}
+#hudBoss .bfill{height:100%;background:var(--impact);transition:width .15s}
+#hudAb{bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:10px;pointer-events:auto}
+.abtn{width:104px;border:1px solid var(--line);border-radius:4px;background:rgba(11,16,14,.9);
+  padding:7px 8px;text-align:left;position:relative;overflow:hidden}
+.abtn .k{font-size:9px;color:var(--txt-dim);letter-spacing:.16em}
+.abtn .n{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+.abtn .sweep{position:absolute;left:0;bottom:0;width:100%;background:rgba(255,255,255,.10);pointer-events:none}
+.abtn.ready{border-color:var(--gold)}
+.abtn.spent{opacity:.4}
+.abtn.arming{border-color:var(--amber);box-shadow:0 0 0 1px var(--amber)}
+#hudSwap{bottom:14px;left:12px;display:flex;gap:5px;pointer-events:auto}
+.swp{width:30px;height:30px;border-radius:3px;border:1px solid var(--line);font-size:11px;font-weight:800;
+  background:rgba(11,16,14,.85)}
+.swp.on{border-color:var(--gold);color:var(--gold-lt)}
+#hudLog{bottom:12px;right:12px;width:240px;font-size:11px;line-height:1.5;text-align:right;color:var(--txt-dim)}
+#banner{position:absolute;top:34%;left:0;right:0;text-align:center;pointer-events:none;display:none}
+#banner.on{display:block}
+#banner .bt{font-size:36px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;text-shadow:0 3px 14px #000}
+#banner .bs{font-size:12px;letter-spacing:.2em;color:var(--gold-lt);text-transform:uppercase;margin-top:6px}
+#banner .bc{font-size:13px;color:var(--txt-dim);margin-top:4px;letter-spacing:.1em}
+#banner.big .bt{font-size:52px}
+
+/* ---------- tuning drawer ---------- */
+#tune{position:absolute;top:0;right:0;bottom:0;width:330px;background:rgba(9,13,12,.97);
+  border-left:1px solid var(--line);padding:12px 14px;overflow:auto;transform:translateX(100%);transition:.18s;z-index:9}
+#tune.on{transform:none}
+#tune h3{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--gold-lt);margin:14px 0 6px}
+.sl{margin-bottom:7px}
+.sl label{display:flex;justify-content:space-between;font-size:11px;color:var(--txt-dim)}
+.sl input{width:100%;accent-color:var(--gold)}
+
+/* ---------- report ---------- */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+th,td{text-align:right;padding:5px 7px;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+th{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--txt-dim);font-weight:700}
+.chart{border:1px solid var(--line);border-radius:4px;padding:10px;background:var(--panel)}
+.chart .ct{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--txt-dim);margin-bottom:8px}
+.timeline{max-height:190px;overflow:auto;font-size:12px;line-height:1.7;border:1px solid var(--line);
+  border-radius:4px;padding:8px 10px;background:var(--panel)}
+.tl-w{color:var(--gold-lt)} .tl-d{color:var(--impact)} .tl-r{color:var(--heal)} .tl-b{color:var(--shield)}
+.pill{display:inline-block;padding:2px 7px;border-radius:10px;font-size:10px;letter-spacing:.1em;
+  text-transform:uppercase;font-weight:800;background:#1e2a25;color:var(--txt-dim)}
+</style>
+</head>
+<body>
+<div id="app"><div id="stage">
+
+<!-- ============ TITLE ============ -->
+<section id="scrTitle" class="screen">
+  <h1>Last Stand — Level 1</h1>
+  <div class="sub" style="margin-bottom:14px">The goblin warcamp, built to PRD v1.9: four circles on open ground, four on the castle walkway,
+  four heroes rooted in place, and the Troll King at the end. You commit to a circle before the level starts and you live with it.
+  <b>The castle is the objective.</b> When its health reaches zero the attempt is over on the spot, however many heroes are still standing —
+  a run that ends with three dead and the castle untouched beat a run where everyone lived and the castle is at 40%.
+  This is the level Section 2 says has to land reliably inside a workshop — two attempts and a debrief in about ten minutes.</div>
+  <h2>Pick the hero you play</h2>
+  <div class="sub" style="margin-bottom:6px">The other three are run by bots so one person can playtest. You can take over any hero mid-fight with <b>1–4</b>.</div>
+  <div class="classGrid" id="classGrid"></div>
+  <div class="row" style="margin-top:16px">
+    <button class="btn primary" id="btnStart">Back to the lobby</button>
+    <button class="btn" id="btnTune">Tuning drawer (T)</button>
+    <button class="btn" id="btnSnd">Sound: on</button>
+  </div>
+  <h2>Controls</h2>
+  <div class="sub"><b>Q</b> ability 1 &nbsp;·&nbsp; <b>E</b> ability 2 (<b>once per stage</b> — one charge for the whole attempt, boss included) &nbsp;·&nbsp;
+  <b>Shift+E</b> as Support spends Bulwark on the castle instead of the party &nbsp;·&nbsp; <b>1–4</b> take over a hero &nbsp;·&nbsp;
+  <b>T</b> tuning &nbsp;·&nbsp; <b>Space</b> pause. Piercing Shot asks you to click a lane. Everything else is aimed for you.</div>
+  <h2>What is in this build</h2>
+  <div class="sub">Circle selection with no enemy preview, wave spawning with goblins and spear throwers, the stacking soft cap,
+  taunt as a hard global retarget, duration-based Bulwark, the Troll King with Club Swipe, Club Slam, a low-HP enrage and a
+  telegraphed Gate Smash aimed at the castle, the three-state telegraph, wave and boss banners, and an after-action report that
+  leads with castle damage and compares attempt against attempt. Sound is synthesised in the browser — wind-up and impact never share a cue.
+  <br><br><b>New since v1.5:</b> the castle with its own health pool and its own loss condition; melee enemies walking to the gate the
+  moment no living hero holds the front line; melee immunity on the walkway paid for in reach, so the Tank contributes nothing from up
+  there and the Ranger contributes everything; the taunt-redirect rule that stops a Tank on the wall stalling the game; ability 2 as a
+  once-per-stage charge with no wave-transition reset; and one preventable boss siege attack per fight.</div>
+  <h2>Deviations from the PRD you should look at</h2>
+  <div class="sub" id="devList"></div>
+</section>
+
+<!-- ============ CIRCLE SELECTION ============ -->
+<section id="scrLobby" class="screen on">
+    <h1>Last Stand</h1>
+    <div class="sub" style="margin-bottom:18px">Four heroes, one castle. Play together or fill the empty seats with bots.</div>
+    <div id="lobHome">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+        <button class="btn primary" id="btnSolo">Play solo</button>
+        <button class="btn" id="btnHost">Host a lobby</button>
+        <button class="btn" id="btnJoinUi">Join with a code</button>
+      </div>
+      <div class="sub">Solo gives you one hero and bots for the rest — the same game, no network needed.
+        Any seat nobody takes is played by a bot, so three of you can start without waiting on a fourth.</div>
+      <div style="margin:4px 0 18px">
+        <div class="sub" style="margin-bottom:6px">Your name — the others will see this on your hero.</div>
+        <input id="playerName" maxlength="14" autocomplete="off" spellcheck="false" placeholder="e.g. Sam"
+          style="font:600 16px ui-sans-serif;width:220px;padding:8px 12px;background:#141a17;
+                 color:var(--stone);border:1px solid var(--line);border-radius:4px">
+      </div>
+      <div class="sub" id="lobHomeStatus" style="margin-top:14px;min-height:1.2em"></div>
+      <div class="sub" style="margin-top:14px;opacity:.75">Testing on your own? Open this same file in two browser
+        windows — host in one, join in the other. It goes out to the broker and back, so it is a real test of
+        whether the connection works from your network.</div>
+      <div style="margin-top:22px"><button class="btn" id="btnAbout">What's in this build</button></div>
+    </div>
+    <div id="lobJoin" style="display:none">
+      <div class="sub" style="margin-bottom:8px">Enter the four-character code the host read out.</div>
+      <input id="joinCode" maxlength="4" autocomplete="off" spellcheck="false"
+        style="font:800 34px ui-monospace,monospace;letter-spacing:.35em;text-transform:uppercase;width:200px;
+               padding:10px 14px;background:#141a17;color:var(--stone);border:1px solid var(--line);border-radius:4px">
+      <div style="margin-top:14px;display:flex;gap:10px"><button class="btn primary" id="btnJoinGo">Join</button>
+        <button class="btn" id="btnJoinBack">Back</button></div>
+    </div>
+    <div id="lobRoom" style="display:none">
+      <div style="display:flex;align-items:baseline;gap:16px;margin-bottom:6px">
+        <div class="sub">Lobby code</div>
+        <div id="lobCode" style="font:800 40px ui-monospace,monospace;letter-spacing:.35em;color:var(--gold)"></div>
+      </div>
+      <div class="sub" id="lobShare" style="margin-bottom:18px"></div>
+      <div id="lobSeats" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px"></div>
+      <div style="display:flex;gap:10px"><button class="btn primary" id="btnLobGo">Everyone in — continue</button>
+        <button class="btn" id="btnLobRetry">Retry connection</button>
+        <button class="btn" id="btnLobLeave">Leave</button></div>
+      <div class="sub" id="lobStatus" style="margin-top:14px"></div>
+    </div>
+</section>
+
+<section id="scrSelect" class="screen">
+  <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:8px 16px">
+    <div><h1 id="selTitle">Level 1</h1><div class="tag" id="selTheme">Goblin warcamp</div></div>
+    <div class="tag" id="selAttempt">Attempt 1</div>
+  </div>
+  <div class="sub" style="margin-top:8px">Claim a circle for each hero. Front row (0–3) meets the melee line. <b>Circles 4–7 are the castle walkway</b> —
+  melee enemies cannot touch you up there, but you are 0.22 lane units further from the fight and you pay that out of your reach.
+  The Ranger still works from the wall. The Tank cannot attack anything at all from it. Leave the front line empty and the enemies
+  walk to the gate instead, and the castle is the thing you are defending. Dashed links mark columns — some attacks hit a front and
+  castle circle together. No timer, and no preview of what's coming.</div>
+  <div id="selBoard"></div>
+  <div class="row" id="selRoster" style="justify-content:center;margin-bottom:10px"></div>
+  <div class="row" style="justify-content:center">
+    <button class="btn" id="btnAuto">Suggest a formation</button>
+    <button class="btn" id="btnClear">Clear</button>
+    <button class="btn primary" id="btnBegin">Begin level</button>
+  </div>
+  <div class="sub" style="text-align:center;margin-top:8px" id="selHint">Click a circle, then click a hero to place them.</div>
+</section>
+
+<!-- ============ GAME ============ -->
+<div id="gameWrap">
+  <canvas id="cv"></canvas>
+  <div class="hud" id="hudParty"></div>
+  <div class="hud" id="hudWave"><div class="wv" id="wvNum">1</div><div class="lv" id="wvLv">Level 1</div></div>
+  <div class="hud" id="hudBoss"><div class="bn" id="bossName">Troll King</div><div class="bbar"><div class="bfill" id="bossFill"></div></div></div>
+  <div class="hud" id="hudAb"></div>
+  <div class="hud" id="hudSwap"></div>
+  <div class="hud" id="hudLog"></div>
+  <div id="banner"><div class="bt" id="banT"></div><div class="bs" id="banS"></div><div class="bc" id="banC"></div></div>
+</div>
+<div id="tune"></div>
+
+<!-- ============ VICTORY ============ -->
+<section id="scrWin" class="screen">
+  <h1 style="color:#EFB63F">Warcamp cleared</h1>
+  <div class="sub" style="margin:8px 0 14px">The Troll King is down. That is the whole Level 1 loop: five waves, a boss,
+  and an after-action report good enough to argue over.</div>
+  <div id="winStats" class="grid2"></div>
+  <div class="row" style="margin-top:18px">
+    <button class="btn primary" id="btnWinAgain">Play level 1 again</button>
+    <button class="btn" id="btnWinReport">See the after-action report</button>
+  </div>
+</section>
+
+<!-- ============ REPORT ============ -->
+<section id="scrReport" class="screen">
+  <div class="row" style="justify-content:space-between;align-items:flex-end">
+    <div><h1 id="repTitle">Level failed</h1><div class="tag" id="repSub"></div></div>
+    <div class="row"><button class="btn" id="btnRetry">Retry level</button><button class="btn primary" id="btnNext">Continue</button></div>
+  </div>
+  <h2>Castle</h2>
+  <div id="repCastle"></div>
+  <h2>Per hero</h2>
+  <div id="repHeroes"></div>
+  <h2>Per wave</h2>
+  <div id="repWaves"></div>
+  <h2>Attempt history for this level</h2>
+  <div class="grid2" id="repCharts"></div>
+  <h2>Event timeline</h2>
+  <div class="timeline" id="repTimeline"></div>
+  <div style="height:24px"></div>
+</section>
+
+</div></div>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+/* One CDN can be blocked where another isn't. Try a second before giving up. */
+if(!window.Peer) document.write('<scr'+'ipt src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"><\/scr'+'ipt>');
+</script>
+<script>
+"use strict";
+/* ================================================================
+   PART 1 — TUNABLES
+   Every number the PRD deferred to playtesting lives here, and every
+   one of them is wired to a slider in the tuning drawer (T).
+   ================================================================ */
+const T = {
+  // heroes (PRD 6.1-6.4 placeholders, adjusted after sim trials)
+  tankHp:150, healerHp:90, supportHp:100, rangerHp:90,
+  tankAtk:10, tankAtkInt:1.0,
+  healerAtk:8, healerAtkInt:1.25,
+  supportAtk:8, supportAtkInt:1.25,
+  rangerAtk:12, rangerAtkInt:0.85,
+  rangerRange:0.52, casterRange:0.40, tankReach:0.17,   // lane units; front row sits at 0.74, back at 0.93
+  tauntCd:20, tauntDur:4,          // PRD 6.1: "longest ability-1 cooldown in the game"
+  slamKnock:0.50,                  // PRD 6.1 + 11.4: ~50% of prior advance progress
+  healCd:18, healPct:0.14, revivePct:0.40,
+  empowerCd:15, empowerDur:6, empowerAmt:0.25,
+  bulwarkDur:4.5,                  // PRD 6.3 + 11.7: matched to taunt duration
+  volleyCd:8, volleyDmg:15, volleyRad:0.30,
+  pierceDmg:70, pierceWidth:0.16,
+  // enemies (level 1 base; levels 2-3 use their own rows plus scaling)
+  gobHp:44, gobSpd:0.115, gobDmg:5, gobInt:1.0,
+  spearHp:36, spearSpd:0.10, spearDmg:8, spearInt:3.4, spearStand:0.42,
+  zomHp:46, zomSpd:0.082, zomDmg:7, zomInt:1.0,
+  skelHp:26, skelSpd:0.09, skelDmg:11, skelInt:3.2, skelStand:0.28,
+  golemHp:105, golemSpd:0.055, golemDmg:12, golemInt:1.1,
+  batHp:16, batSpd:0.165, batDmg:6, batInt:0.8,
+  lvl2Scale:1.45, lvl3Scale:2.05,  // PRD 9.4: 40-60% per level, applied to HP
+  stackCap:3,                      // PRD 5.3 soft cap
+  // bosses
+  // trollHp was 2100. PRD 8.4 flagged it needed re-tuning under once-per-stage, because 2100
+  // assumed the team arrives at the boss with a guaranteed fresh Bulwark. They no longer do.
+  trollHp:1000, trollCd:5.2, trollDmg:55, trollEnrage:0.30, trollEnrageMul:0.62,
+  necroHp:1500, necroCd:4.6, necroOrbDmg:3, necroOrbDur:6, necroSummon:4,
+  dragonHp:4000, dragonCd:4.2, dragonMeteorDmg:30, dragonSprayDmg:24,
+  telegraph:1.7,                   // PRD 8: 1.5-2s minimum wind-up
+  // castle — PRD 5.4 / 8.5 (v1.6-v1.8)
+  castleHp:900,                    // PRD 5.4 suggested 1200 and said to tune it on the harness.
+                                   // 1200 let an all-wall formation turtle to a 33% win rate — better
+                                   // than playing properly. 900 makes turtling lose to the castle 83%
+                                   // of the time while a balanced formation still finishes around 41%.
+  castleOffset:0.22,               // lane units the castle row sits behind the front row.
+                                   // The single most load-bearing number in the system: it is
+                                   // larger than tankReach (0.17) and smaller than casterRange
+                                   // (0.40), which is what makes the Tank useless on the wall
+                                   // and the Healer still useful.
+  wallCover:0.50,                  // ranged damage multiplier vs a hero on the wall
+  gateStackMul:2.5,                // the gate is wide — more enemies fit on it than on a circle
+  siegeDmg:170, siegeEvery:3,      // boss siege attack: damage, and every Nth boss attack step
+  // pacing
+  wavePause:5, bossPause:15, spawnGapMul:0.45,
+  waveDensity:2.0,                 // global multiplier on wave enemy counts
+  wavesPerStage:5                  // PRD 9.3 says 5. Section 6 flags 3 as the recommended fix
+                                   // for once-per-stage Revive dead time — slider, not a decision.
+};
+const TUNE_GROUPS = [
+  ["Heroes",[["tankHp",50,300,5],["healerHp",40,200,5],["supportHp",40,200,5],["rangerHp",40,200,5],
+             ["tankAtk",2,30,1],["healerAtk",2,30,1],["supportAtk",2,30,1],["rangerAtk",2,40,1],["rangerRange",.1,1,.02],["casterRange",.1,1,.02],["tankReach",.05,.5,.01]]],
+  ["Abilities",[["tauntCd",4,45,1],["tauntDur",1,12,.5],["slamKnock",0,1,.05],["healCd",4,40,1],
+             ["healPct",.02,.4,.01],["revivePct",.1,1,.05],["empowerCd",4,40,1],["empowerDur",2,15,.5],
+             ["empowerAmt",0,1,.05],["bulwarkDur",1,12,.5],["volleyCd",2,25,.5],["volleyDmg",2,60,1],["pierceDmg",10,250,5]]],
+  ["Enemies",[["gobHp",5,160,2],["gobSpd",.03,.3,.005],["gobDmg",1,25,1],["spearHp",5,140,2],["spearDmg",1,30,1],
+             ["zomHp",10,160,2],["zomDmg",1,30,1],["skelHp",5,120,2],["skelDmg",1,40,1],
+             ["golemHp",20,300,5],["golemDmg",1,40,1],["batHp",5,80,1],["batDmg",1,25,1],
+             ["lvl2Scale",1,3,.05],["lvl3Scale",1,4,.05],["stackCap",1,8,1],["waveDensity",.4,2,.05]]],
+  ["Bosses",[["trollHp",200,5000,50],["trollCd",1.5,12,.2],["trollDmg",5,120,2],
+             ["necroHp",300,7000,50],["necroCd",1.5,12,.2],["necroOrbDmg",1,15,1],["necroSummon",0,10,1],
+             ["dragonHp",400,9000,100],["dragonCd",1.5,12,.2],["dragonMeteorDmg",5,100,2],["dragonSprayDmg",4,90,2],
+             ["telegraph",0.6,4,.1]]],
+  ["Castle",[["castleHp",200,4000,50],["castleOffset",.05,.5,.01],["wallCover",0,1,.05],
+             ["siegeDmg",20,500,10],["siegeEvery",2,8,1],["gateStackMul",1,5,.25]]],
+  ["Pacing",[["wavePause",0,20,1],["bossPause",0,30,1],["spawnGapMul",.25,2,.05],["wavesPerStage",3,5,1]]]
+];
+
+/* ================================================================
+   PART 2 — STATIC DEFINITIONS
+   ================================================================ */
+const CLASSES = ["Tank","Healer","Support","Ranger"];
+const CLR = {Tank:"#2C4A7C",Healer:"#1D9E75",Support:"#4B3F8F",Ranger:"#2F5C38"};
+const CLR_LT = {Tank:"#4E74AE",Healer:"#35C795",Support:"#7A6BD0",Ranger:"#4E8C5C"};
+const SIGIL = {Tank:"hammer",Healer:"cross",Support:"diamond",Ranger:"chevron"};
+const ABIL = {
+  Tank:   [["Taunt","Q","Every enemy on the field attacks you"],["Hammer Slam","E","Shoves the whole field back up the lane"]],
+  Healer: [["Group Heal","Q","Heals every living hero"],["Revive","E","Brings one hero back at 40% HP"]],
+  Support:[["Empower","Q","+25% attack power, whole team"],["Bulwark","E","All damage blocked for a few seconds. SHIFT+E spends it on the castle instead of the party — one charge, one choice."]],
+  Ranger: [["Volley","Q","Arrow rain over a cluster"],["Piercing Shot","E","Pick a lane; hits everything in it"]]
+};
+// PRD 5.1 — chessboard: circles 0-3 front, 4-7 castle walkway, column c = {c, c+4}
+const COLX = [-0.66,-0.22,0.22,0.66];
+const ZFRONT = 0.74;
+const CIRCLES = [];
+// v1.6: the back row is the castle rampart and sits castleOffset behind the front row.
+// Rebuilt on every level start so the tuning drawer's offset slider actually does something.
+function rebuildCircles(){
+  const zc = ZFRONT + T.castleOffset;
+  CIRCLES.length = 0;
+  for(let i=0;i<8;i++) CIRCLES.push({id:i,row:i<4?"front":"castle",col:i%4,x:COLX[i%4],z:i<4?ZFRONT:zc});
+}
+rebuildCircles();
+const GATE = -1;                                   // sentinel target id: the castle gate
+function gateZ(){ return ZFRONT + T.castleOffset*0.55; }
+
+const LEVELS = [
+  { id:1, theme:"goblin", name:"Goblin warcamp", melee:"goblin", ranged:"spear", boss:"troll",
+    bossName:"Troll King", ground:"#3C4A32", far:"#5C6B4C", fort:"#3A2A1C", sky:"#212B1E" },
+  { id:2, theme:"undead", name:"Undead crypt", melee:"zombie", ranged:"skeleton", boss:"necro",
+    bossName:"The Necromancer", ground:"#2C3446", far:"#4B5570", fort:"#241F33", sky:"#171B27" },
+  { id:3, theme:"fire", name:"Volcanic ruins", melee:"golem", ranged:"firebat", boss:"dragon",
+    bossName:"Cinderwyrm", ground:"#3B2A24", far:"#6A4232", fort:"#2A1A16", sky:"#221310" }
+];
+// PRD 9.3 wave composition table
+const WAVES = [
+  {n:5, ranged:1, gap:1.9},
+  {n:7, ranged:2, gap:1.7},
+  {n:9, ranged:3, gap:1.5},
+  {n:11,ranged:4, gap:1.25},
+  {n:13,ranged:5, gap:1.1}
+];
+function enemyDef(levelId, kind){
+  const s = levelId===2?T.lvl2Scale : levelId===3?T.lvl3Scale : 1;
+  const D = {
+    goblin:  {arch:"melee", hp:T.gobHp,   spd:T.gobSpd,   dmg:T.gobDmg,   int:T.gobInt,   r:9,  label:"Goblin"},
+    spear:   {arch:"ranged",hp:T.spearHp, spd:T.spearSpd, dmg:T.spearDmg, int:T.spearInt, r:9,  stand:T.spearStand, label:"Spear Thrower"},
+    zombie:  {arch:"melee", hp:T.zomHp,   spd:T.zomSpd,   dmg:T.zomDmg,   int:T.zomInt,   r:10, label:"Zombie"},
+    skeleton:{arch:"ranged",hp:T.skelHp,  spd:T.skelSpd,  dmg:T.skelDmg,  int:T.skelInt,  r:9,  stand:T.skelStand, label:"Skeleton Archer"},
+    golem:   {arch:"melee", hp:T.golemHp, spd:T.golemSpd, dmg:T.golemDmg, int:T.golemInt, r:13, label:"Lava Golem"},
+    firebat: {arch:"flyer", hp:T.batHp,   spd:T.batSpd,   dmg:T.batDmg,   int:T.batInt,   r:8,  label:"Firebat"}
+  }[kind];
+  // PRD 9.4: HP scales per level. Damage does NOT — see deviation note 2.
+  return Object.assign({},D,{kind, hp:Math.round(D.hp*s), maxHp:Math.round(D.hp*s)});
+}
+
+/* ================================================================
+   PART 3 — DETERMINISTIC SIM CORE (20 Hz, no rendering, no DOM)
+   Kept free of browser globals so it can be lifted onto a Node
+   authoritative server as-is (PRD 4.2).
+   ================================================================ */
+const DT = 0.05;
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+function newHero(cls, circleId, isPlayer){
+  const hp = {Tank:T.tankHp,Healer:T.healerHp,Support:T.supportHp,Ranger:T.rangerHp}[cls];
+  const atk= {Tank:T.tankAtk,Healer:T.healerAtk,Support:T.supportAtk,Ranger:T.rangerAtk}[cls];
+  const ai = {Tank:T.tankAtkInt,Healer:T.healerAtkInt,Support:T.supportAtkInt,Ranger:T.rangerAtkInt}[cls];
+  return {cls, circle:circleId, hp, maxHp:hp, atk, atkInt:ai, atkCd:0, alive:true,
+          cd1:0, ch2:true, empower:0, bulwark:0, taunt:0, poison:0, poisonSrc:0,
+          isPlayer:!!isPlayer, flash:0, deathT:-1, deathWave:-1};
+}
+function heroAt(S,cid){ return S.heroes.find(h=>h.circle===cid && h.alive) || null; }
+function heroOwner(S,cid){ return S.heroes.find(h=>h.circle===cid) || null; }
+function livingHeroes(S){ return S.heroes.filter(h=>h.alive); }
+// PRD 5.3 as broadened in v1.7: only a LIVING hero holds the line. A dead hero's
+// reserved circle does not, which is why this checks heroAt and not heroOwner.
+function occupiedFront(S){ return CIRCLES.filter(c=>c.row==="front" && heroAt(S,c.id)); }
+function occupiedCastle(S){ return CIRCLES.filter(c=>c.row==="castle" && heroAt(S,c.id)); }
+function onCastle(cid){ return cid>=0 && CIRCLES[cid].row==="castle"; }
+function tank(S){ return S.heroes.find(h=>h.cls==="Tank"); }
+
+function newSim(levelIdx, assign, playerCls, seed){
+  rebuildCircles();
+  const L = LEVELS[levelIdx];
+  const S = {
+    L, levelIdx, t:0, tick:0, rng:mulberry32(seed||12345),
+    phase:"wave", wave:1, waveT:0, phaseT:0,
+    heroes:CLASSES.map(c=>newHero(c, assign[c], c===playerCls)),
+    enemies:[], projectiles:[], fx:[], numbers:[], telegraphs:[], spawns:[],
+    boss:null, bossWalk:0, over:null, overReason:null, nextId:1,
+    // PRD 5.4 — one shared pool, cumulative across the whole stage, never refilled
+    // between waves or before the boss. Reset only by starting a fresh attempt.
+    castle:{ hp:T.castleHp, maxHp:T.castleHp, shield:0, flash:0, gate:0, chip:0, siege:0,
+             waves:Array.from({length:6},()=>({dmg:0,gate:0})) },
+    stats:{}, log:[], aggro:0,
+    meteorSeq:0, sprayCol:-1
+  };
+  for(const h of S.heroes) S.stats[h.cls] = {dmg:0, taken:0, healG:0, healR:0, a1:0, a2:0, kills:0,
+      waves:Array.from({length:6},()=>({dmg:0,taken:0,healG:0,healR:0,a1:0,a2:0}))};
+  buildWave(S,1);
+  return S;
+}
+function waveIdx(S){ return S.phase==="boss"||S.phase==="bossintro" ? 5 : S.wave-1; }
+function rec(S, cls, key, amt){
+  const st=S.stats[cls]; if(!st) return;
+  st[key]+=amt; const w=st.waves[Math.max(0,Math.min(5,waveIdx(S)))]; if(w) w[key]+=amt;
+}
+function logEvent(S, kind, text){ S.log.push({t:+S.t.toFixed(1), wave:S.phase==="boss"?"Boss":"Wave "+S.wave, kind, text}); }
+
+function buildWave(S, n){
+  const w = WAVES[n-1], L=S.L;
+  const total = Math.max(1,Math.round(w.n*T.waveDensity));
+  const nRanged = Math.min(total-1, Math.round(w.ranged*T.waveDensity));
+  const list=[];
+  for(let i=0;i<total-nRanged;i++) list.push(L.melee);
+  for(let i=0;i<nRanged;i++) list.push(L.ranged);
+  // interleave so ranged don't all arrive last
+  const out=[]; let a=0,b=total-nRanged;
+  for(let i=0;i<total;i++){ out.push(i%3===2 && b<list.length ? list[b++] : list[a++]||list[b++]); }
+  S.spawns = out.filter(Boolean).map((kind,i)=>({kind, at:i*w.gap*T.spawnGapMul+0.4}));
+  S.waveT = 0;
+}
+function spawnEnemy(S, kind, opt){
+  const d = enemyDef(S.L.id, kind);
+  const e = {id:S.nextId++, kind, arch:d.arch, hp:d.hp, maxHp:d.maxHp, dmg:d.dmg, spd:d.spd,
+    int:d.int, r:d.r, stand:d.stand, label:d.label,
+    x:(opt&&opt.x!==undefined)?opt.x:(S.rng()*1.5-0.75), z:(opt&&opt.z)||0.02,
+    target:null, engaged:false, atkCd:d.int*(0.4+S.rng()*0.6), tele:null, hitT:0, dead:false, phase:0};
+  S.enemies.push(e); return e;
+}
+
+/* ---- targeting: PRD 5.3, rewritten for the castle in v1.6-v1.7 ---- */
+function pickTarget(S, e){
+  const tk = tank(S);
+  if(S.aggro>0 && tk && tk.alive){
+    // v1.7 taunt redirect. A Tank on the wall could otherwise pull the whole field onto a
+    // target melee enemies cannot damage and stall the wave at zero risk. Taunting from the
+    // wall does not remove the damage — it moves it onto the thing you are defending.
+    if(e.arch==="melee" && onCastle(tk.circle)) return GATE;
+    return tk.circle;
+  }
+  if(e.arch==="flyer"){                       // PRD 7.1/5.4 — flyers ignore the wall entirely
+    const bk = occupiedCastle(S); if(bk.length) return nearest(e,bk).id;
+    const fr = occupiedFront(S);  if(fr.length) return nearest(e,fr).id;
+    return GATE;
+  }
+  if(e.arch==="ranged"){                      // PRD 5.4 — ranged enemies never damage the castle
+    const fr = occupiedFront(S);  if(fr.length) return nearest(e,fr).id;
+    const bk = occupiedCastle(S); if(bk.length) return nearest(e,bk).id;
+    return null;
+  }
+  // melee: the front line, or the gate. There is no third option and no idle/mill fallback —
+  // v1.7 removed it, because the castle is always a valid target.
+  const fr = occupiedFront(S); if(fr.length) return nearest(e,fr).id;
+  return GATE;
+}
+function nearest(e,list){ let b=list[0],bd=1e9; for(const c of list){const d=Math.abs(c.x-e.x); if(d<bd){bd=d;b=c;} } return b; }
+function engagedCount(S,cid){ return S.enemies.filter(x=>!x.dead&&x.engaged&&x.target===cid).length; }
+
+/* ---- damage / healing ---- */
+function hurtHero(S, h, amt, src){
+  if(!h || !h.alive) return 0;
+  if(h.bulwark>0) return 0;                       // PRD 6.3/8.4 — Bulwark blocks everything
+  h.hp -= amt; h.flash = 0.25; rec(S,h.cls,"taken",amt);
+  S.numbers.push({txt:"-"+Math.round(amt), circle:h.circle, t:0, col:"#D94F3D"});
+  if(h.hp<=0){
+    h.hp=0; h.alive=false; h.deathT=S.t; h.deathWave=waveIdx(S); h.taunt=0;
+    if(h.cls==="Tank") S.aggro=0;
+    logEvent(S,"death", h.cls+" died to "+src);
+  }
+  return amt;
+}
+// PRD 5.4 — the castle is the objective, so everything that hurts it routes through here
+// and is attributed to a channel (gate chip vs boss siege) so the report can separate them.
+function hurtCastle(S, amt, src, kind){
+  const C=S.castle; if(C.hp<=0) return;
+  if(C.shield>0){ S.numbers.push({txt:"BLOCKED", castle:true, t:0, col:"#7F77DD"}); return; }
+  C.hp=Math.max(0,C.hp-amt); C.flash=0.3;
+  if(kind==="siege") C.siege+=amt; else C.chip+=amt;
+  const w=C.waves[Math.max(0,Math.min(5,waveIdx(S)))]; if(w) w.dmg+=amt;
+  S.numbers.push({txt:"-"+Math.round(amt), castle:true, t:0, col:"#D94F3D"});
+  if(C.hp<=0) logEvent(S,"end","The castle fell to "+src);
+}
+function healHero(S, h, amt, byCls){
+  if(!h||!h.alive) return 0;
+  const before=h.hp; h.hp=Math.min(h.maxHp,h.hp+amt); const d=h.hp-before;
+  if(d>0){ rec(S,byCls,"healG",d); rec(S,h.cls,"healR",d);
+    S.numbers.push({txt:"+"+Math.round(d), circle:h.circle, t:0, col:"#1D9E75"}); }
+  return d;
+}
+function hurtEnemy(S, e, amt, byCls){
+  if(e.dead) return; e.hp-=amt; e.hitT=0.15; rec(S,byCls,"dmg",amt);
+  S.numbers.push({txt:Math.round(amt), x:e.x, z:e.z, t:0, col:"#D94F3D", world:true});
+  if(e.hp<=0){ e.dead=true; S.stats[byCls].kills++; S.fx.push({kind:"pop",x:e.x,z:e.z,t:0}); }
+}
+function hurtBoss(S, amt, byCls){
+  const b=S.boss; if(!b||b.dead) return;
+  b.hp-=amt; b.hitT=0.12; rec(S,byCls,"dmg",amt);
+  S.numbers.push({txt:Math.round(amt), x:b.x, z:b.z, t:0, col:"#D94F3D", world:true});
+  if(b.hp<=0){ b.hp=0; b.dead=true; logEvent(S,"boss", S.L.bossName+" defeated"); }
+}
+function heroDmg(S,h,base){ return base * (1 + (h.empower>0?T.empowerAmt:0)); }
+
+/* ---- projectiles ---- */
+function fireProj(S, o){ S.projectiles.push(Object.assign({t:0,dur:0.35},o)); }
+function tickProjectiles(S){
+  for(const p of S.projectiles){
+    p.t+=DT;
+    if(p.t>=p.dur && !p.done){
+      p.done=true;
+      if(p.hostile){ /* visual only — the telegraph that spawned it owns the damage */ }
+      else if(p.targetBoss){ hurtBoss(S,p.dmg,p.cls); }
+      else { const e=S.enemies.find(x=>x.id===p.eid); if(e&&!e.dead) hurtEnemy(S,e,p.dmg,p.cls); }
+    }
+  }
+  S.projectiles = S.projectiles.filter(p=>p.t<p.dur+0.1);
+}
+
+/* ---- telegraph library (PRD 9.2 + 11.6 three-state pattern) ---- */
+function addTelegraph(S, circles, dmg, src, kind, delay, cover){
+  S.telegraphs.push({circles:circles.slice(), dmg, src, kind:kind||"strike", t:-(delay||0), dur:T.telegraph, cover:!!cover});
+}
+// PRD 8.5 — aimed at the castle itself, not at a circle. Longer wind-up than a hero-targeted
+// attack because the correct response is different and the team has to recognise it as such.
+function addSiege(S, dmg, src){
+  S.telegraphs.push({circles:[], castle:true, dmg, src, kind:"siege", t:0, dur:T.telegraph*1.6, cover:false});
+  logEvent(S,"boss",src+" winding up on the castle");
+}
+function tickTelegraphs(S){
+  for(const g of S.telegraphs){
+    g.t+=DT;
+    if(g.t>=g.dur && !g.done){
+      g.done=true;
+      if(g.castle){
+        // PRD 8.5 channel 2 — the one preventable castle attack each boss gets.
+        const tk=tank(S);
+        if(S.aggro>0 && tk && tk.alive){ hurtHero(S,tk,g.dmg,g.src+" (redirected)");
+          logEvent(S,"bulwark","Taunt pulled "+g.src+" off the castle"); }
+        else hurtCastle(S,g.dmg,g.src,"siege");
+        S.fx.push({kind:"siege",t:0});
+        continue;
+      }
+      for(const cid of g.circles){
+        S.fx.push({kind:"impact",circle:cid,t:0});
+        const h=heroAt(S,cid);
+        // PRD 8.5 channel 1 — splash landing on an EMPTY castle circle damages nothing.
+        // Incidental boss splash must never touch the castle, or castle damage stops
+        // meaning "we let them through" and starts meaning "the boss swung that way".
+        if(h){
+          // v1.6 wall cover: ranged enemies can still hit a hero on the rampart, at a discount
+          const mul = (g.cover && CIRCLES[cid].row==="castle") ? T.wallCover : 1;
+          if(g.kind==="poison"){ if(h.bulwark<=0){ h.poison=T.necroOrbDur; h.poisonSrc=g.dmg*mul; } }
+          else hurtHero(S,h,g.dmg*mul,g.src);
+        }
+      }
+    }
+  }
+  S.telegraphs = S.telegraphs.filter(g=>g.t < g.dur+0.35);
+}
+
+/* ---- enemy update ---- */
+function tickEnemies(S){
+  for(const e of S.enemies){
+    if(e.dead) continue;
+    e.hitT=Math.max(0,e.hitT-DT);
+    const want = pickTarget(S,e);
+    if(want!==e.target){ e.target=want; e.engaged=false; }
+    if(e.target===null){ e.z=Math.min(0.5,e.z+e.spd*DT*0.4); continue; }
+    if(e.target===GATE){
+      const gz=gateZ();
+      if(!e.engaged){
+        const cap = engagedCount(S,GATE) < Math.round(T.stackCap*T.gateStackMul);
+        const holdZ = cap ? gz : gz-0.055;
+        if(e.z<holdZ){ e.z=Math.min(holdZ,e.z+e.spd*DT); e.x += (0-e.x)*0.30*DT; }
+        else if(cap){
+          e.engaged=true;
+          if(!e._atGate){ e._atGate=1; S.castle.gate++;
+            const w=S.castle.waves[Math.max(0,Math.min(5,waveIdx(S)))]; if(w) w.gate++; }
+        }
+      } else {
+        e.atkCd-=DT;
+        if(e.atkCd<=0){ e.atkCd=e.int; hurtCastle(S,e.dmg,e.label,"chip"); }
+      }
+      continue;
+    }
+    const c = CIRCLES[e.target];
+    const stopZ = c.z - 0.05;
+
+    if(e.arch==="ranged"){
+      // Standoff has to be measured against the circle being shot at, not as a fixed
+      // distance. Moving the castle row back to 0.96 put a 0.42 standoff outside even the
+      // Ranger's 0.52 reach, which deadlocked the wave: the spear thrower could shoot the
+      // wall forever and nothing on the wall could shoot back. A ranged enemy now closes to
+      // within its target's reach. This is a deadlock guard, not a balance number.
+      const def = heroAt(S,e.target);
+      const need = def ? c.z - heroRange(def) + 0.03 : 0;
+      const sz = Math.max(e.stand, need);
+      if(e.z < sz){ e.z += e.spd*DT; e.x += (c.x-e.x)*0.35*DT; continue; }
+      e.atkCd -= DT;
+      if(e.atkCd<=0){
+        e.atkCd = e.int + T.telegraph;
+        // PATTERN ASSIGNMENT (PRD 9.2 flagged this as an open design task):
+        //   spear thrower -> single-circle, own column if held, else nearest held
+        //   skeleton archer -> column pattern (front + back of one column)
+        let targets;
+        if(e.kind==="skeleton"){
+          const col = c.col; targets=[col,col+4].filter(id=>heroAt(S,id));
+          if(!targets.length) targets=[c.id];
+        } else {
+          const own = CIRCLES.filter(x=>x.col===c.col && heroAt(S,x.id));
+          targets = own.length ? [own[0].id] : [c.id];
+        }
+        addTelegraph(S, targets, e.dmg, e.label, "strike", 0, true);
+        for(const cid of targets) setTimeoutProj(S, e, cid, e.dmg);
+      }
+      continue;
+    }
+    // melee + flyer: advance, then engage (PRD 5.3 stacking soft cap)
+    if(!e.engaged){
+      const cap = engagedCount(S,e.target) < T.stackCap;
+      const holdZ = cap ? stopZ : stopZ - 0.075;         // queue behind at the cap
+      if(e.z < holdZ){ e.z = Math.min(holdZ, e.z + e.spd*DT); e.x += (c.x-e.x)*1.1*DT; }
+      else if(cap){ e.engaged=true; e.x = c.x + (S.rng()-0.5)*0.09; }
+    } else {
+      e.atkCd-=DT;
+      if(e.atkCd<=0){ e.atkCd=e.int; const h=heroAt(S,e.target); if(h) hurtHero(S,h,e.dmg,e.label); }
+    }
+  }
+  S.enemies = S.enemies.filter(e=>!e.dead || false);
+}
+function setTimeoutProj(S, e, cid, dmg){
+  // spawn the visible projectile at the end of the wind-up, not before
+  S.spawnedProjQueue = S.spawnedProjQueue||[];
+  S.spawnedProjQueue.push({at:S.t+T.telegraph-0.35, x:e.x, z:e.z, circle:cid, dmg, src:e.label});
+}
+function tickQueuedProj(S){
+  if(!S.spawnedProjQueue) return;
+  for(let i=S.spawnedProjQueue.length-1;i>=0;i--){
+    const q=S.spawnedProjQueue[i];
+    if(S.t>=q.at){ S.projectiles.push({t:0,dur:0.35,hostile:true,x0:q.x,z0:q.z,circle:q.circle,dmg:q.dmg,src:q.src,noDmg:true});
+      S.spawnedProjQueue.splice(i,1); }
+  }
+}
+
+/* ---- hero auto attacks ---- */
+function heroRange(h){ return h.cls==="Tank"? T.tankReach : h.cls==="Ranger"? T.rangerRange : T.casterRange; }
+function heroTargets(S,h){
+  const c=CIRCLES[h.circle], R=heroRange(h), out=[];
+  // PRD 5.4: the wall works both ways. A hero whose reach cannot span the setback cannot
+  // attack anything at all from a castle circle — this is the Tank, by design, always.
+  if(c.row==="castle" && R < T.castleOffset) return out;
+  for(const e of S.enemies){ if(e.dead) continue;
+    if(e.z <= c.z-R) continue;                                   // out of reach up the lane
+    if(h.cls==="Tank" && Math.abs(e.x-c.x)>0.34) continue;       // and the Tank only swings at his own tile
+    out.push(e);
+  }
+  if(S.boss && !S.boss.dead && S.boss.z > c.z-R) out.push(S.boss);
+  return out;
+}
+function tickHeroes(S){
+  for(const h of S.heroes){
+    if(!h.alive) continue;
+    h.flash=Math.max(0,h.flash-DT);
+    h.cd1=Math.max(0,h.cd1-DT);
+    h.empower=Math.max(0,h.empower-DT);
+    h.bulwark=Math.max(0,h.bulwark-DT);
+    h.taunt=Math.max(0,h.taunt-DT);
+    if(h.poison>0){ h.poison-=DT; if(Math.floor((h.poison+DT)*2)!==Math.floor(h.poison*2)) hurtHero(S,h,h.poisonSrc,"Poison"); }
+    h.atkCd-=DT;
+    if(h.atkCd<=0){
+      const list=heroTargets(S,h);
+      if(list.length){
+        let best=list[0]; for(const e of list) if(e.z>best.z) best=e;
+        h.atkCd=h.atkInt;
+        const dmg=heroDmg(S,h,h.atk);
+        if(h.cls==="Tank"){ if(best.isBoss) hurtBoss(S,dmg,"Tank"); else hurtEnemy(S,best,dmg,"Tank");
+          S.fx.push({kind:"swing",circle:h.circle,t:0}); }
+        else fireProj(S,{cls:h.cls, eid:best.id, targetBoss:!!best.isBoss, dmg, from:h.circle,
+          x1:best.x, z1:best.z, dur:0.22+0.3*Math.max(0,CIRCLES[h.circle].z-best.z)});
+      }
+    }
+  }
+  S.aggro=Math.max(0,S.aggro-DT);
+}
+
+/* ---- abilities ---- */
+function useAbility(S, h, which){
+  if(!h.alive) return false;
+  if(which===1 && h.cd1>0) return false;
+  if(which===2 && !h.ch2) return false;
+  const alive=livingHeroes(S);
+  if(h.cls==="Tank"){
+    if(which===1){ h.cd1=T.tauntCd; h.taunt=T.tauntDur; S.aggro=T.tauntDur;
+      for(const e of S.enemies) e.engaged=false;
+      logEvent(S,"ability","Tank taunted the field"); }
+    else { for(const e of S.enemies){ if(e.dead)continue; e.z=Math.max(0.02,e.z*(1-T.slamKnock)); e.engaged=false; }
+      S.fx.push({kind:"slam",circle:h.circle,t:0}); logEvent(S,"ability","Hammer Slam reset the advance"); }
+  } else if(h.cls==="Healer"){
+    if(which===1){ h.cd1=T.healCd; for(const a of alive) healHero(S,a,a.maxHp*T.healPct,"Healer");
+      S.fx.push({kind:"heal",t:0}); }
+    else { const dead=S.heroes.filter(x=>!x.alive);
+      if(!dead.length) return false;
+      dead.sort((a,b)=>a.deathT-b.deathT); const d=dead[0];
+      d.alive=true; d.hp=Math.round(d.maxHp*T.revivePct); d.cd1=0; d.poison=0;
+      S.fx.push({kind:"revive",circle:d.circle,t:0});
+      logEvent(S,"revive","Healer revived "+d.cls); }
+  } else if(h.cls==="Support"){
+    if(which===1){ h.cd1=T.empowerCd; for(const a of alive) a.empower=T.empowerDur; }
+    else if(h.castleBulwark){
+      // PRD 8.5 option (b): one charge for the whole stage, spent on a person or on the
+      // customer. This is the decision the castle system exists to produce.
+      h.castleBulwark=false; S.castle.shield=T.bulwarkDur; S.fx.push({kind:"bulwarkCastle",t:0});
+      logEvent(S,"bulwark","Bulwark spent on the castle, not the party");
+    }
+    else { for(const a of alive) a.bulwark=T.bulwarkDur; S.fx.push({kind:"bulwark",t:0});
+      logEvent(S,"bulwark","Bulwark up for "+T.bulwarkDur+"s"); }
+  } else { // Ranger
+    if(which===1){
+      const live=S.enemies.filter(e=>!e.dead);
+      if(!live.length && !(S.boss&&!S.boss.dead)) return false;
+      h.cd1=T.volleyCd;
+      let cx=0,cz=0,best=-1,bx=0,bz=0;
+      const zMin=CIRCLES[h.circle].z-T.rangerRange;
+      for(const e of live){ if(e.z<=zMin) continue;
+        let n=0; for(const o of live) if(Math.hypot(o.x-e.x,(o.z-e.z)*1.6)<T.volleyRad) n++;
+        if(n>best){best=n;bx=e.x;bz=e.z;} }
+      if(best<0 && S.boss){ bx=S.boss.x; bz=S.boss.z; }
+      cx=bx; cz=bz;
+      S.fx.push({kind:"volley",x:cx,z:cz,t:0});
+      for(const e of live) if(Math.hypot(e.x-cx,(e.z-cz)*1.6)<T.volleyRad) hurtEnemy(S,e,heroDmg(S,h,T.volleyDmg),"Ranger");
+      if(S.boss&&!S.boss.dead&&Math.hypot(S.boss.x-cx,(S.boss.z-cz)*1.6)<T.volleyRad+0.06) hurtBoss(S,heroDmg(S,h,T.volleyDmg),"Ranger");
+    } else {
+      const lane = (h.pendingLane!==undefined && h.pendingLane!==null) ? h.pendingLane : bestLane(S);
+      h.pendingLane=null;
+      const lx=COLX[lane];
+      S.fx.push({kind:"pierce",lane, t:0});
+      for(const e of S.enemies) if(!e.dead && Math.abs(e.x-lx)<T.pierceWidth) hurtEnemy(S,e,heroDmg(S,h,T.pierceDmg),"Ranger");
+      if(S.boss&&!S.boss.dead&&Math.abs(S.boss.x-lx)<T.pierceWidth+0.12) hurtBoss(S,heroDmg(S,h,T.pierceDmg),"Ranger");
+      logEvent(S,"ability","Piercing Shot down lane "+lane);
+    }
+  }
+  if(which===1){ rec(S,h.cls,"a1",1); } else { h.ch2=false; rec(S,h.cls,"a2",1); }
+  return true;
+}
+function bestLane(S){
+  let best=0,bn=-1;
+  for(let c=0;c<4;c++){ let n=0;
+    for(const e of S.enemies) if(!e.dead && Math.abs(e.x-COLX[c])<T.pierceWidth) n++;
+    if(S.boss&&!S.boss.dead&&Math.abs(S.boss.x-COLX[c])<T.pierceWidth+0.12) n+=3;
+    if(n>bn){bn=n;best=c;} }
+  return best;
+}
+
+/* ---- bosses (PRD 8) ---- */
+// Standing distance is NOT specified in the PRD but decides whether the Tank can
+// reach the boss at all. Chosen per boss and surfaced as a deviation note.
+const BOSS_Z = {troll:0.63, necro:0.38, dragon:0.60};
+function makeBoss(S){
+  const L=S.L, hp = {troll:T.trollHp, necro:T.necroHp, dragon:T.dragonHp}[L.boss];
+  S.boss = {isBoss:true, kind:L.boss, name:L.bossName, hp, maxHp:hp, x:0, z:0.02,
+            standZ:BOSS_Z[L.boss], atkCd:3, step:0, dead:false, hitT:0, r:26, id:-1, enraged:false};
+}
+function bossCd(S){
+  const b=S.boss, base={troll:T.trollCd, necro:T.necroCd, dragon:T.dragonCd}[b.kind];
+  return base * (b.kind==="troll" && b.hp/b.maxHp < T.trollEnrage ? T.trollEnrageMul : 1);
+}
+function occupied(S){ return CIRCLES.filter(c=>heroAt(S,c.id)); }
+function tickBoss(S){
+  const b=S.boss; if(!b||b.dead) return;
+  b.hitT=Math.max(0,b.hitT-DT);
+  if(S.phase!=="boss") return;   // walks the lane during the 15s banner (PRD 11.10)
+  if(b.z < b.standZ){ b.z=Math.min(b.standZ,b.z+0.10*DT); return; }
+  if(b.kind==="troll" && !b.enraged && b.hp/b.maxHp<T.trollEnrage){ b.enraged=true; logEvent(S,"boss","Troll King enraged"); }
+  b.atkCd-=DT;
+  if(b.atkCd>0) return;
+  b.atkCd = bossCd(S) + T.telegraph;
+  const R = ()=>S.rng();
+  // PRD 8.5 — every Nth attack step is the siege, aimed at the castle rather than at heroes.
+  // Preventable two ways: Taunt during the wind-up redirects it onto the Tank, or the
+  // Support spends Bulwark on the castle. The team has two answers and one charge.
+  if(b.step % T.siegeEvery === T.siegeEvery-1){
+    addSiege(S, T.siegeDmg, {troll:"Gate Smash", necro:"Grave Tide", dragon:"Siege Breath"}[b.kind]);
+    b.step++; return;
+  }
+  const occ = occupied(S); if(!occ.length) return;
+
+  if(b.kind==="troll"){
+    if(b.step%2===0){
+      // Club Swipe — adjacent pair in one row, must include >=1 occupied circle
+      const pairs=[];
+      for(const row of [0,4]) for(let c=0;c<3;c++){
+        const p=[row+c,row+c+1]; if(p.some(id=>heroAt(S,id))) pairs.push(p);
+      }
+      const p=pairs[Math.floor(R()*pairs.length)];
+      addTelegraph(S,p,T.trollDmg,"Club Swipe");
+    } else {
+      // Club Slam — front + back of one column
+      const cols=[0,1,2,3].filter(c=>heroAt(S,c)||heroAt(S,c+4));
+      const c=cols[Math.floor(R()*cols.length)];
+      addTelegraph(S,[c,c+4],T.trollDmg,"Club Slam");
+    }
+  } else if(b.kind==="necro"){
+    if(b.step%3===1){
+      // Summon — fixed points, zombies must appear in front of the front row
+      for(let i=0;i<T.necroSummon;i++){
+        const isMelee = i%3!==2;
+        spawnEnemy(S, isMelee?"zombie":"skeleton", {x:(i-(T.necroSummon-1)/2)*0.32, z:isMelee?0.55:0.22});
+      }
+      logEvent(S,"boss","Necromancer summoned "+T.necroSummon+" adds");
+      b.atkCd = bossCd(S);
+    } else {
+      // Poison Orb — 3 orbs across living heroes, max 2 per hero, never at empty circles
+      const live=livingHeroes(S); const counts={};
+      for(let i=0;i<3;i++){
+        const pool=live.filter(h=>(counts[h.circle]||0)<2);
+        if(!pool.length) break;
+        const h=pool[Math.floor(R()*pool.length)];
+        counts[h.circle]=(counts[h.circle]||0)+1;
+        addTelegraph(S,[h.circle],T.necroOrbDmg,"Poison Orb","poison", i*0.25);
+      }
+    }
+  } else {
+    // Dragon — Meteor Rain cycles a fixed sequence; Fire Spray sweeps every column
+    if(b.step%3===2){
+      for(let c=0;c<4;c++) addTelegraph(S,[c,c+4],T.dragonSprayDmg,"Fire Spray","strike",c*0.45);
+      b.atkCd = bossCd(S)+T.telegraph+1.8;
+      logEvent(S,"boss","Fire Spray sweeping");
+    } else {
+      const SEQ=[[0,2],[5,7],[1,3],[4,6]];
+      const p=SEQ[S.meteorSeq%SEQ.length]; S.meteorSeq++;
+      addTelegraph(S,[p[0]],T.dragonMeteorDmg,"Meteor Rain","strike",0);
+      addTelegraph(S,[p[1]],T.dragonMeteorDmg,"Meteor Rain","strike",0.45);
+    }
+  }
+  b.step++;
+}
+
+/* ---- bot AI for the three heroes you are not playing ---- */
+function pressure(S){ return S.enemies.filter(e=>!e.dead&&e.engaged&&(!tank(S)||e.target!==tank(S).circle)).length; }
+function lowest(S){ const l=livingHeroes(S); return l.length? l.reduce((a,b)=>a.hp/a.maxHp<b.hp/b.maxHp?a:b) : null; }
+function incomingHits(S){ let n=0; for(const g of S.telegraphs){ if(g.done) continue;
+  if(g.dur-g.t < 0.7) n+=g.circles.filter(c=>heroAt(S,c)).length; } return n; }
+function siegeIncoming(S){ return S.telegraphs.some(g=>g.castle && !g.done); }
+function atGate(S){ return S.enemies.filter(x=>!x.dead && x.target===GATE).length; }
+function botThink(S){
+  const sup=S.heroes.find(h=>h.cls==="Support"), tk=tank(S),
+        hl=S.heroes.find(h=>h.cls==="Healer"), rg=S.heroes.find(h=>h.cls==="Ranger");
+  const live=S.enemies.filter(e=>!e.dead), bossUp=S.boss&&!S.boss.dead&&S.phase==="boss";
+  const lo=lowest(S);
+  if(tk&&tk.alive&&!tk.isPlayer){
+    const p=pressure(S);
+    // Taunt now also answers the siege: pulling the boss off the castle is worth more
+    // than pulling three goblins off the Ranger.
+    if(tk.cd1<=0 && (siegeIncoming(S) || (tk.hp/tk.maxHp>0.4 && (p>=3 || (bossUp&&incomingHits(S)>=2&&sup&&sup.ch2))))) useAbility(S,tk,1);
+    const avgZ = live.length? live.reduce((a,e)=>a+e.z,0)/live.length : 0;
+    // Hammer Slam is the only way to peel a crowd off the gate once the line has broken.
+    if(tk.ch2 && (atGate(S)>=3 || (live.length>=5&&avgZ>0.55) || (lo&&lo.hp/lo.maxHp<0.3&&live.length>=3))) useAbility(S,tk,2);
+  }
+  if(sup&&sup.alive&&!sup.isPlayer){
+    if(sup.cd1<=0 && (live.length>=2||bossUp)) useAbility(S,sup,1);
+    const combo = S.aggro>0 && tk&&tk.alive;
+    // The bot's one castle decision: if a siege is winding up and the Tank cannot redirect it,
+    // the charge goes on the castle instead of the party. Person or customer, once per stage.
+    if(sup.ch2 && siegeIncoming(S) && !(S.aggro>0 && tk && tk.alive) && S.castle.hp/S.castle.maxHp < 0.75){
+      sup.castleBulwark=true; useAbility(S,sup,2);
+    }
+    else if(sup.ch2 && (combo || incomingHits(S)>=2 || (lo&&lo.hp/lo.maxHp<0.28&&live.length>=3))) useAbility(S,sup,2);
+  }
+  if(hl&&hl.alive&&!hl.isPlayer){
+    const hurt=livingHeroes(S).filter(h=>h.hp/h.maxHp<0.78).length;
+    if(hl.cd1<=0 && ((lo&&lo.hp/lo.maxHp<0.62)||hurt>=3)) useAbility(S,hl,1);
+    if(hl.ch2 && S.heroes.some(h=>!h.alive)) useAbility(S,hl,2);
+  }
+  if(rg&&rg.alive&&!rg.isPlayer){
+    if(rg.cd1<=0){
+      let best=0; for(const e of live){ let n=0; for(const o of live) if(Math.hypot(o.x-e.x,(o.z-e.z)*1.6)<T.volleyRad) n++; best=Math.max(best,n); }
+      if(best>=3 || (live.length&&live.length<=2&&S.phase!=="boss") || (bossUp&&best>=1)) useAbility(S,rg,1);
+    }
+    if(rg.ch2){
+      let inLane=0; for(let c=0;c<4;c++){ let n=0; for(const e of live) if(Math.abs(e.x-COLX[c])<T.pierceWidth) n++; inLane=Math.max(inLane,n); }
+      if(inLane>=3 || (bossUp && S.boss.hp/S.boss.maxHp<0.85)) useAbility(S,rg,2);
+    }
+  }
+}
+
+/* ---- phase machine ---- */
+// v1.6 removed resetCooldowns entirely. Ability 1 cooldown timers run continuously through
+// the inter-wave pause; Ability 2 is one charge for the whole stage and never comes back.
+// What went away is the free spend — an ability dumped at the end of a wave is no longer refunded.
+function step(S){
+  if(S.over) return;
+  S.t+=DT; S.tick++; S.phaseT+=DT;
+  botThink(S);
+  tickHeroes(S);
+  if(S.phase==="wave"){
+    S.waveT+=DT;
+    while(S.spawns.length && S.spawns[0].at<=S.waveT) spawnEnemy(S, S.spawns.shift().kind);
+  }
+  tickEnemies(S); tickBoss(S); tickQueuedProj(S); tickProjectiles(S); tickTelegraphs(S);
+  for(const f of S.fx) f.t+=DT;   S.fx=S.fx.filter(f=>f.t<0.9);
+  for(const n of S.numbers) n.t+=DT; S.numbers=S.numbers.filter(n=>n.t<1.1);
+  S.enemies=S.enemies.filter(e=>!e.dead);
+
+  S.castle.shield=Math.max(0,S.castle.shield-DT);
+  S.castle.flash=Math.max(0,S.castle.flash-DT);
+
+  // PRD 1.1 / 5.4 — the castle is the objective and it is checked first, every tick.
+  // Zero ends the attempt on the spot, whoever is still standing. No partial credit.
+  if(S.castle.hp<=0){ S.over="lost"; S.overReason="castle"; return; }
+  // A party wipe is the derived condition: with nobody holding the gate the castle falls
+  // anyway, so ending here only skips the inevitable.
+  if(!livingHeroes(S).length){ S.over="lost"; S.overReason="wipe"; logEvent(S,"end","Party wiped — nothing left defending the gate"); return; }
+
+  if(S.phase==="wave" && !S.spawns.length && !S.enemies.length){
+    logEvent(S,"wave","Wave "+S.wave+" cleared — castle at "+Math.round(100*S.castle.hp/S.castle.maxHp)+"%");
+    S.phase = S.wave>=T.wavesPerStage ? "bossintro" : "pause";
+    S.phaseT=0;
+    if(S.phase==="bossintro") makeBoss(S);
+  } else if(S.phase==="pause" && S.phaseT>=T.wavePause){
+    S.wave++; buildWave(S,S.wave); S.phase="wave"; S.phaseT=0;
+    logEvent(S,"wave","Wave "+S.wave+" incoming");
+  } else if(S.phase==="bossintro"){
+    if(S.boss) S.boss.z=Math.min(0.30, 0.02+ (S.phaseT/Math.max(1,T.bossPause))*0.30);
+    if(S.phaseT>=T.bossPause){ S.phase="boss"; S.phaseT=0; logEvent(S,"boss",S.L.bossName+" engaged"); }
+  } else if(S.phase==="boss" && S.boss && S.boss.dead && !S.enemies.length){
+    S.over="won"; S.overReason="cleared";
+    logEvent(S,"end","Level cleared — castle at "+Math.round(100*S.castle.hp/S.castle.maxHp)+"%");
+  }
+}
+
+/* ================================================================
+   PART 4 — RENDERER (fixed isometric-ish camera, PRD 11.4)
+   ================================================================ */
+const cv=document.getElementById("cv"), ctx=cv.getContext("2d");
+let VW=1100, VH=620;
+function resize(){
+  const r=cv.getBoundingClientRect(), dpr=Math.min(2,window.devicePixelRatio||1);
+  VW=r.width; VH=r.height; cv.width=VW*dpr; cv.height=VH*dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener("resize",resize);
+// lane projection: z 0 = spawn line (far), 1 = camera-near edge
+function P(x,z){
+  const t=Math.max(0,Math.min(1.05,z));
+  const yy=t*(0.42+0.58*t);
+  const sy=VH*0.13 + yy*(VH*0.80);
+  const s=0.34+0.86*t;
+  const half=VW*(0.115+0.345*t);
+  return {x:VW/2 + x*half, y:sy, s, half};
+}
+function rr(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);
+  c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}
+function shade(hex,f){const n=parseInt(hex.slice(1),16);let r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+  r=Math.max(0,Math.min(255,r*f))|0;g=Math.max(0,Math.min(255,g*f))|0;b=Math.max(0,Math.min(255,b*f))|0;
+  return "rgb("+r+","+g+","+b+")";}
+const scatterRng=mulberry32(9001); const SCATTER=[];
+for(let i=0;i<120;i++) SCATTER.push({x:(scatterRng()*2.6-1.3), z:scatterRng(), s:scatterRng()});
+
+function drawField(S){
+  const L=S.L;
+  ctx.fillStyle=L.sky; ctx.fillRect(0,0,VW,VH);
+  // far backdrop band
+  const g=ctx.createLinearGradient(0,VH*0.10,0,VH*1.0);
+  g.addColorStop(0,L.far); g.addColorStop(0.35,shade(L.ground,1.18)); g.addColorStop(1,shade(L.ground,0.72));
+  const a=P(-1.35,0), b=P(1.35,0), c=P(1.35,1.05), d=P(-1.35,1.05);
+  ctx.fillStyle=g; ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.lineTo(c.x,c.y); ctx.lineTo(d.x,d.y); ctx.closePath(); ctx.fill();
+  // treeline / camp silhouettes behind the spawn line
+  ctx.fillStyle=shade(L.fort,1.05);
+  const y0=P(0,0).y;
+  for(let i=0;i<26;i++){
+    const px=P(-1.3+ i*0.104, 0.0);
+    const h=10+((i*37)%17), w=16+((i*13)%12);
+    if(L.theme==="goblin"){ ctx.beginPath(); ctx.moveTo(px.x,y0-2); ctx.lineTo(px.x+w/2,y0-h-8); ctx.lineTo(px.x+w,y0-2); ctx.closePath(); ctx.fill(); }
+    else if(L.theme==="undead"){ ctx.fillRect(px.x,y0-h-6,w*0.6,h+6); }
+    else { ctx.beginPath(); ctx.moveTo(px.x,y0-2); ctx.lineTo(px.x+w*0.5,y0-h-14); ctx.lineTo(px.x+w,y0-2); ctx.closePath(); ctx.fill(); }
+  }
+  if(L.theme==="goblin") drawCamp(S,y0);
+  ctx.fillStyle="rgba(0,0,0,.25)"; ctx.fillRect(0,y0-3,VW,4);
+  ctx.fillStyle="rgba(255,255,255,.30)"; ctx.font="600 10px ui-sans-serif"; ctx.textAlign="center";
+  ctx.fillText("ENEMY SPAWN", VW/2, y0-8);
+  // palisade rails — seven diminishing steps a side, doubling as perspective guides
+  for(const side of [-1,1]){
+    for(let i=0;i<7;i++){
+      const z=i/7*1.0, p=P(side*(1.02+0.10*z), z), h=(16+70*z);
+      ctx.fillStyle=shade(L.fort, 0.7+0.5*z);
+      ctx.fillRect(p.x-6*p.s, p.y-h, 12*p.s, h);
+      ctx.fillStyle=shade(L.fort, 1.25);
+      ctx.beginPath(); ctx.moveTo(p.x-6*p.s,p.y-h); ctx.lineTo(p.x,p.y-h-9*p.s); ctx.lineTo(p.x+6*p.s,p.y-h); ctx.closePath(); ctx.fill();
+    }
+  }
+  // depth-scaled ground scatter
+  for(const s of SCATTER){
+    const p=P(s.x,s.z);
+    ctx.fillStyle="rgba(0,0,0,"+(0.06+0.12*s.z)+")";
+    ctx.beginPath(); ctx.ellipse(p.x,p.y,(2+7*s.s)*p.s,(1+3*s.s)*p.s,0,0,7); ctx.fill();
+  }
+}
+// Set dressing behind the spawn line: no collision, no pathing (PRD 11.4)
+function drawCamp(S,y0){
+  const T0=[[-0.95,26],[-0.62,20],[0.58,22],[0.92,28]];
+  for(const [x,w] of T0){
+    const p=P(x,0.005);
+    ctx.fillStyle="#4A3320"; ctx.beginPath();
+    ctx.moveTo(p.x-w*0.6,y0-2); ctx.lineTo(p.x,y0-w*1.15); ctx.lineTo(p.x+w*0.6,y0-2); ctx.closePath(); ctx.fill();
+    ctx.fillStyle="#2E2014"; ctx.beginPath();
+    ctx.moveTo(p.x,y0-2); ctx.lineTo(p.x+w*0.2,y0-w*0.95); ctx.lineTo(p.x+w*0.6,y0-2); ctx.closePath(); ctx.fill();
+  }
+  // totem
+  const tp=P(-0.18,0.005);
+  ctx.fillStyle="#3A2A1C"; ctx.fillRect(tp.x-3,y0-46,6,46);
+  ctx.fillStyle="#5E7A3F"; ctx.beginPath(); ctx.arc(tp.x,y0-50,7,0,7); ctx.fill();
+  // campfire, the one warm thing on a cold field
+  const fp=P(0.20,0.008), fl=0.7+0.3*Math.sin(S.t*9)+0.15*Math.sin(S.t*23);
+  ctx.fillStyle="rgba(217,102,61,"+(0.55*fl)+")";
+  ctx.beginPath(); ctx.moveTo(fp.x-7,y0-2); ctx.lineTo(fp.x,y0-16*fl); ctx.lineTo(fp.x+7,y0-2); ctx.closePath(); ctx.fill();
+  ctx.fillStyle="rgba(239,182,63,"+(0.5*fl)+")";
+  ctx.beginPath(); ctx.moveTo(fp.x-3,y0-2); ctx.lineTo(fp.x,y0-9*fl); ctx.lineTo(fp.x+3,y0-2); ctx.closePath(); ctx.fill();
+  // banner poles
+  for(const x of [-1.06,1.04]){
+    const p=P(x,0.005);
+    ctx.fillStyle="#3A2A1C"; ctx.fillRect(p.x-2,y0-56,4,56);
+    ctx.fillStyle="#6B3A2A"; ctx.beginPath();
+    ctx.moveTo(p.x+2,y0-54); ctx.lineTo(p.x+20,y0-48+2*Math.sin(S.t*2+x)); ctx.lineTo(p.x+2,y0-34); ctx.closePath(); ctx.fill();
+  }
+}
+function circleGeom(cid){ const c=CIRCLES[cid], p=P(c.x,c.z); return {p, rx:56*p.s, ry:24*p.s}; }
+function drawCircles(S, rowFilter){
+  // column links (PRD 11.4 — the pairing Club Slam punishes must be visible).
+  // Drawn with the castle pass so they sit on top of the wall rather than under it.
+  if(rowFilter==="castle") for(let c=0;c<4;c++){
+    const A=circleGeom(c).p, B=circleGeom(c+4).p;
+    ctx.strokeStyle="rgba(255,255,255,.10)"; ctx.setLineDash([5,6]); ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y); ctx.stroke(); ctx.setLineDash([]);
+  }
+  for(const c of CIRCLES){
+    if(rowFilter && c.row!==rowFilter) continue;
+    const {p,rx,ry}=circleGeom(c.id);
+    const owner=heroOwner(S,c.id), alive=owner&&owner.alive;
+    // telegraph state: idle -> amber wind-up -> red impact (PRD 11.6)
+    let tele=null, impact=0;
+    for(const g of S.telegraphs){ if(g.circles.includes(c.id)){
+      if(!g.done && g.t>0) tele=Math.max(tele||0, g.t/g.dur);
+      if(g.done) impact=Math.max(impact, 1-(g.t-g.dur)/0.35); } }
+    for(const f of S.fx) if(f.kind==="impact"&&f.circle===c.id) impact=Math.max(impact,1-f.t/0.35);
+    ctx.save();
+    ctx.beginPath(); ctx.ellipse(p.x,p.y,rx,ry,0,0,7);
+    ctx.fillStyle= impact>0 ? "rgba(217,79,61,"+(0.28+0.5*impact)+")"
+                 : tele!==null ? "rgba(239,182,63,"+(0.14+0.34*tele)+")" : "rgba(217,210,194,.20)";
+    ctx.fill();
+    ctx.lineWidth= alive?3:2;
+    ctx.strokeStyle = tele!==null ? "#EFB63F" : (owner ? (alive?CLR_LT[owner.cls]:"rgba(255,255,255,.25)") : "rgba(217,210,194,.55)");
+    if(owner&&!alive){ ctx.setLineDash([6,6]); ctx.strokeStyle=CLR_LT[owner.cls]; }   // reserved circle (PRD 11.8)
+    ctx.stroke(); ctx.setLineDash([]);
+    // wind-up ring closing in
+    if(tele!==null){ ctx.beginPath(); ctx.ellipse(p.x,p.y,rx*(1.5-0.5*tele),ry*(1.5-0.5*tele),0,0,7);
+      ctx.strokeStyle="rgba(239,182,63,"+(0.25+0.5*tele)+")"; ctx.lineWidth=2; ctx.stroke(); }
+    ctx.fillStyle="rgba(255,255,255,.30)"; ctx.font="600 "+(9*p.s+3).toFixed(0)+"px ui-sans-serif"; ctx.textAlign="center";
+    ctx.fillText(c.id, p.x, p.y+ry+11);
+    ctx.restore();
+  }
+}
+/* --- the castle (PRD 5.4, art per 11.13 plate 12/13) ---------------------------
+   Vertical construction, front half only: wall face, walkway, towers, gate centred at
+   the base facing the enemy. Nothing behind the wall plane exists. Palette is the
+   dark-brown fortification family so the carved-stone circles stay the brightest
+   thing on the field — that contrast headroom belongs to the amber telegraphs.       */
+const CASTLE_PAL = {lit:"#6F6047", mid:"#5B4F3B", shadow:"#483B28", deep:"#3A3220", gate:"#42361F"};
+function drawCastle(S){
+  const C=S.castle, frac=Math.max(0,C.hp/C.maxHp);
+  const zTop=gateZ()-0.015, zBot=gateZ()+0.085;
+  const tl=P(-1.24,zTop), tr=P(1.24,zTop), br=P(1.30,zBot), bl=P(-1.30,zBot);
+  const wk=P(0,1.06);
+  ctx.save();
+
+  // walkway deck — the surface circles 4-7 stand on
+  ctx.fillStyle=CASTLE_PAL.mid;
+  ctx.beginPath(); ctx.moveTo(bl.x,bl.y); ctx.lineTo(br.x,br.y);
+  ctx.lineTo(VW,wk.y+90); ctx.lineTo(0,wk.y+90); ctx.closePath(); ctx.fill();
+  ctx.fillStyle="rgba(0,0,0,.16)";
+  for(let i=0;i<5;i++){ const y=br.y+18+i*26; ctx.fillRect(0,y,VW,2); }
+
+  // wall face
+  ctx.fillStyle=CASTLE_PAL.lit;
+  ctx.beginPath(); ctx.moveTo(tl.x,tl.y); ctx.lineTo(tr.x,tr.y);
+  ctx.lineTo(br.x,br.y); ctx.lineTo(bl.x,bl.y); ctx.closePath(); ctx.fill();
+  ctx.fillStyle=CASTLE_PAL.shadow;
+  ctx.beginPath(); ctx.moveTo(tl.x,tl.y); ctx.lineTo(tr.x,tr.y);
+  ctx.lineTo(tr.x,tr.y+7); ctx.lineTo(tl.x,tl.y+7); ctx.closePath(); ctx.fill();
+  // coursing
+  ctx.strokeStyle="rgba(58,50,32,.45)"; ctx.lineWidth=1;
+  const wh=br.y-tr.y;
+  for(let i=1;i<4;i++){ const y=tl.y+wh*i/4;
+    ctx.beginPath(); ctx.moveTo(tl.x-2,y); ctx.lineTo(tr.x+2,y); ctx.stroke(); }
+  for(let i=0;i<16;i++){ const x=tl.x+(tr.x-tl.x)*(i+0.5)/16;
+    ctx.beginPath(); ctx.moveTo(x,tl.y+wh*0.25); ctx.lineTo(x+3,br.y-wh*0.25); ctx.stroke(); }
+
+  // battlements
+  ctx.fillStyle=CASTLE_PAL.deep;
+  for(let i=0;i<18;i++){ const t=i/18, x=tl.x+(tr.x-tl.x)*t;
+    if(Math.abs(x-VW/2)<48) continue;                      // leave the gate arch clear
+    ctx.fillRect(x, tl.y-11, (tr.x-tl.x)/34, 12); }
+
+  // gate — centred, faces the enemy, never opens
+  const gw=104, gh=wh*0.78, gx=VW/2-gw/2, gy=br.y-gh;
+  ctx.fillStyle= frac<0.15 ? "#1A160E" : CASTLE_PAL.gate;
+  ctx.beginPath(); ctx.moveTo(gx,br.y); ctx.lineTo(gx,gy+14);
+  ctx.quadraticCurveTo(VW/2,gy-12,gx+gw,gy+14); ctx.lineTo(gx+gw,br.y); ctx.closePath(); ctx.fill();
+  if(frac>=0.15){
+    ctx.fillStyle=CASTLE_PAL.deep;
+    ctx.fillRect(gx+4,gy+26,gw-8,4); ctx.fillRect(gx+4,br.y-16,gw-8,4);
+    ctx.strokeStyle="rgba(58,50,32,.9)"; ctx.lineWidth=1.4;
+    for(let i=1;i<4;i++){ const x=gx+gw*i/4;
+      ctx.beginPath(); ctx.moveTo(x,gy+16); ctx.lineTo(x,br.y); ctx.stroke(); }
+  } else {
+    ctx.fillStyle=CASTLE_PAL.deep;                          // rubble in the breach
+    for(let i=0;i<7;i++){ const x=gx+8+i*13; ctx.fillRect(x,br.y-10-((i*7)%14),11,9); }
+  }
+
+  // towers, one each end — somewhere for damage to show that is not the gate
+  for(const side of [-1,1]){
+    const tp=P(side*1.30, gateZ()+0.03), tw=48, th=wh*1.5;
+    ctx.fillStyle=CASTLE_PAL.mid;   ctx.fillRect(tp.x-tw/2, tp.y-th, tw, th+26);
+    ctx.fillStyle=CASTLE_PAL.lit;   ctx.fillRect(tp.x-tw/2, tp.y-th, tw*0.42, th+26);
+    ctx.fillStyle=CASTLE_PAL.deep;
+    for(let i=0;i<3;i++) ctx.fillRect(tp.x-tw/2+i*tw/3, tp.y-th-10, tw/5, 11);
+    if(frac<0.5 && side<0){                                  // the left tower takes it first
+      ctx.fillStyle=CASTLE_PAL.deep;
+      ctx.beginPath(); ctx.moveTo(tp.x-tw/2,tp.y-th); ctx.lineTo(tp.x+tw/2,tp.y-th+22);
+      ctx.lineTo(tp.x+tw/2,tp.y-th); ctx.closePath(); ctx.fill();
+    }
+  }
+
+  // damage read: structural breakage and desaturation, never a red tint (PRD 11.13)
+  if(frac<0.5){
+    ctx.strokeStyle="rgba(58,50,32,.85)"; ctx.lineWidth=2.5;
+    const cracks=[[-0.55,0.1],[0.42,-0.2],[0.78,0.3]];
+    for(const [cx,dv] of cracks){ const a=P(cx,zTop), b=P(cx+dv*0.12,zBot);
+      ctx.beginPath(); ctx.moveTo(a.x,a.y);
+      ctx.lineTo(a.x+9,(a.y+b.y)/2); ctx.lineTo(b.x-5,b.y); ctx.stroke(); }
+  }
+  if(frac<0.5){ ctx.fillStyle="rgba(120,120,110,"+(0.32*(1-frac/0.5))+")";
+    ctx.beginPath(); ctx.moveTo(tl.x,tl.y-12); ctx.lineTo(tr.x,tr.y-12);
+    ctx.lineTo(br.x,br.y); ctx.lineTo(bl.x,bl.y); ctx.closePath(); ctx.fill(); }
+
+  // ---- castle health, drawn on the wall between the two rows of circles ----
+  // This is the objective (PRD 1.1), so it sits in the field of play rather than in a
+  // corner of the HUD. Anchored to the wall, which is exactly the thing it measures.
+  const bw=(tr.x-tl.x)*0.92, bx=(tl.x+tr.x)/2-bw/2, bh=15, by=tl.y-40;
+  ctx.fillStyle="rgba(14,18,16,.72)"; ctx.fillRect(bx-3,by-3,bw+6,bh+6);
+  ctx.fillStyle="#26302c"; ctx.fillRect(bx,by,bw,bh);
+  ctx.fillStyle = frac<0.34 ? "#D94F3D" : "#E8DCC0";
+  ctx.fillRect(bx+2,by+2,Math.max(0,(bw-4)*frac),bh-4);
+  ctx.strokeStyle = C.shield>0 ? "rgba(127,119,221,"+(0.6+0.35*Math.sin(S.t*9))+")" : "#3A3220";
+  ctx.lineWidth = C.shield>0 ? 3 : 1;
+  ctx.strokeRect(bx,by,bw,bh);
+  ctx.font="800 11px ui-sans-serif"; ctx.textBaseline="alphabetic";
+  ctx.fillStyle = frac<0.34 ? "#D94F3D" : "#8b9a92";
+  ctx.textAlign="left";  ctx.fillText("CASTLE", bx, by-6);
+  ctx.textAlign="right"; ctx.fillText(Math.ceil(C.hp)+" / "+C.maxHp+(C.gate?"   ·   "+C.gate+" reached the gate":""), bx+bw, by-6);
+  ctx.textAlign="center";
+
+  // impact flash
+  if(C.flash>0){ ctx.fillStyle="rgba(217,79,61,"+(0.30*C.flash/0.3)+")";
+    ctx.beginPath(); ctx.moveTo(tl.x,tl.y-12); ctx.lineTo(tr.x,tr.y-12);
+    ctx.lineTo(br.x,br.y); ctx.lineTo(bl.x,bl.y); ctx.closePath(); ctx.fill(); }
+  ctx.restore();
+}
+
+/* --- hero, back view: shoulder band > sigil > over-shoulder silhouette --- */
+function drawHero(S,h){
+  const c=CIRCLES[h.circle], p=P(c.x,c.z), s=p.s*1.02;
+  const base=CLR[h.cls], lt=CLR_LT[h.cls];
+  ctx.save();
+  ctx.fillStyle="rgba(0,0,0,.35)"; ctx.beginPath(); ctx.ellipse(p.x,p.y,26*s,10*s,0,0,7); ctx.fill();
+  if(!h.alive){ // collapsed
+    ctx.globalAlpha=.55; ctx.fillStyle=shade(base,.7);
+    rr(ctx,p.x-24*s,p.y-10*s,48*s,14*s,6*s); ctx.fill();
+    ctx.restore(); return;
+  }
+  if(h.taunt>0){ // steel-blue ownership aura, never red (PRD 11.5)
+    const pulse=0.5+0.5*Math.sin(S.t*8);
+    ctx.strokeStyle="rgba(78,116,174,"+(0.4+0.4*pulse)+")"; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.ellipse(p.x,p.y,60*s,26*s,0,0,7); ctx.stroke();
+  }
+  const H=62*s;
+  // robe / legs
+  ctx.fillStyle=shade(base,.72);
+  ctx.beginPath(); ctx.moveTo(p.x-17*s,p.y); ctx.lineTo(p.x+17*s,p.y);
+  ctx.lineTo(p.x+13*s,p.y-H*0.55); ctx.lineTo(p.x-13*s,p.y-H*0.55); ctx.closePath(); ctx.fill();
+  // torso
+  ctx.fillStyle=base; rr(ctx,p.x-15*s,p.y-H*0.92,30*s,H*0.42,5*s); ctx.fill();
+  // shoulder band — the cue that survives the camera angle
+  ctx.fillStyle=lt; rr(ctx,p.x-17*s,p.y-H*0.92,34*s,7*s,3*s); ctx.fill();
+  // gold back sigil
+  ctx.fillStyle="#C9A227"; const cy=p.y-H*0.68, k=6*s;
+  ctx.beginPath();
+  if(SIGIL[h.cls]==="hammer"){ ctx.rect(p.x-k*0.35,cy-k,k*0.7,k*2); ctx.rect(p.x-k,cy-k,k*2,k*0.8); }
+  else if(SIGIL[h.cls]==="cross"){ ctx.rect(p.x-k*0.3,cy-k,k*0.6,k*2); ctx.rect(p.x-k,cy-k*0.3,k*2,k*0.6); }
+  else if(SIGIL[h.cls]==="diamond"){ ctx.moveTo(p.x,cy-k); ctx.lineTo(p.x+k,cy); ctx.lineTo(p.x,cy+k); ctx.lineTo(p.x-k,cy); }
+  else { ctx.moveTo(p.x-k,cy+k*0.4); ctx.lineTo(p.x,cy-k*0.6); ctx.lineTo(p.x+k,cy+k*0.4);
+         ctx.lineTo(p.x,cy-k*0.05); }
+  ctx.closePath(); ctx.fill();
+  // head
+  ctx.fillStyle=shade(base,1.25); ctx.beginPath(); ctx.arc(p.x,p.y-H*1.02,10*s,0,7); ctx.fill();
+  // over-shoulder silhouette
+  ctx.fillStyle="#6E6455";
+  if(h.cls==="Tank"){ ctx.beginPath(); ctx.ellipse(p.x-20*s,p.y-H*0.72,9*s,12*s,0.2,0,7); ctx.fill();
+    ctx.fillStyle="#8A8072"; ctx.fillRect(p.x+14*s,p.y-H*1.15,9*s,10*s); }
+  else if(h.cls==="Healer"){ ctx.fillStyle="#8A8072"; ctx.fillRect(p.x-20*s,p.y-H*1.3,3*s,26*s);
+    ctx.fillStyle="rgba(29,158,117,.95)"; ctx.beginPath(); ctx.arc(p.x-18*s,p.y-H*1.34,6*s,0,7); ctx.fill(); }
+  else if(h.cls==="Support"){ ctx.fillStyle="#8A8072"; ctx.fillRect(p.x+17*s,p.y-H*1.35,3*s,30*s);
+    ctx.fillStyle=lt; ctx.beginPath(); ctx.moveTo(p.x+20*s,p.y-H*1.35); ctx.lineTo(p.x+34*s,p.y-H*1.26);
+    ctx.lineTo(p.x+20*s,p.y-H*1.14); ctx.closePath(); ctx.fill(); }
+  else { ctx.fillStyle="#7A6A4A"; ctx.fillRect(p.x+13*s,p.y-H*1.12,7*s,14*s);
+    ctx.strokeStyle="#8A8072"; ctx.lineWidth=2.2*s; ctx.beginPath();
+    ctx.arc(p.x,p.y-H*0.78,17*s,-0.9,0.9); ctx.stroke(); }
+  // damage flash
+  if(h.flash>0){ ctx.fillStyle="rgba(217,79,61,"+(h.flash*1.6)+")"; rr(ctx,p.x-18*s,p.y-H*1.1,36*s,H*1.1,6*s); ctx.fill(); }
+  // per-hero duration readouts (PRD 11.7 requirement)
+  if(h.empower>0){ ctx.strokeStyle="rgba(242,201,76,.85)"; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.ellipse(p.x,p.y,34*s,14*s,0,-Math.PI, -Math.PI+Math.PI*2*(h.empower/T.empowerDur)); ctx.stroke(); }
+  if(h.bulwark>0){ const a=0.30+0.22*Math.sin(S.t*7);
+    ctx.fillStyle="rgba(127,119,221,"+a+")"; ctx.beginPath(); ctx.arc(p.x,p.y-H*0.62,30*s,0,7); ctx.fill();
+    ctx.strokeStyle="rgba(127,119,221,.95)"; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.arc(p.x,p.y-H*0.62,30*s,-Math.PI/2,-Math.PI/2+Math.PI*2*(h.bulwark/T.bulwarkDur)); ctx.stroke(); }
+  if(h.poison>0){ ctx.fillStyle="rgba(120,190,90,.5)"; for(let i=0;i<3;i++){
+    const yy=p.y-((S.t*40+i*20)%50)*s; ctx.beginPath(); ctx.arc(p.x+(i-1)*9*s,yy,2.6*s,0,7); ctx.fill(); } }
+  ctx.restore();
+}
+
+/* --- enemies, front-facing: outside the hero palette, never gold --- */
+function drawEnemy(S,e){
+  const p=P(e.x,e.z), s=p.s;
+  ctx.save();
+  ctx.fillStyle="rgba(0,0,0,.32)"; ctx.beginPath(); ctx.ellipse(p.x,p.y,e.r*s*1.1,e.r*s*0.45,0,0,7); ctx.fill();
+  const hit=e.hitT>0;
+  const body={goblin:"#5E7A3F",spear:"#5E7A3F",zombie:"#6B7A6E",skeleton:"#C9C6B4",golem:"#4A3A34",firebat:"#7A3626"}[e.kind]||"#5E7A3F";
+  ctx.fillStyle= hit? "#D94F3D" : body;
+  const H=e.r*2.4*s;
+  if(e.kind==="firebat"){
+    const flap=Math.sin(S.t*18+e.id)*0.5;
+    ctx.fillStyle=hit?"#D94F3D":"#8A3A22";
+    ctx.beginPath(); ctx.moveTo(p.x,p.y-H*0.6); ctx.lineTo(p.x-20*s,p.y-H*0.6-flap*9*s); ctx.lineTo(p.x-6*s,p.y-H*0.4); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(p.x,p.y-H*0.6); ctx.lineTo(p.x+20*s,p.y-H*0.6+flap*9*s); ctx.lineTo(p.x+6*s,p.y-H*0.4); ctx.closePath(); ctx.fill();
+    ctx.fillStyle=hit?"#fff":"#D9663D"; ctx.beginPath(); ctx.arc(p.x,p.y-H*0.6,7*s,0,7); ctx.fill();
+    ctx.fillStyle="#EFB63F"; ctx.beginPath(); ctx.arc(p.x-2.5*s,p.y-H*0.62,1.6*s,0,7); ctx.arc(p.x+2.5*s,p.y-H*0.62,1.6*s,0,7); ctx.fill();
+  } else {
+    // legs + torso + head
+    ctx.fillRect(p.x-7*s,p.y-H*0.34,5*s,H*0.34); ctx.fillRect(p.x+2*s,p.y-H*0.34,5*s,H*0.34);
+    rr(ctx,p.x-e.r*s,p.y-H*0.82,e.r*2*s,H*0.5,4*s); ctx.fill();
+    ctx.beginPath(); ctx.arc(p.x,p.y-H*0.94,e.r*0.72*s,0,7); ctx.fill();
+    if(e.kind==="goblin"||e.kind==="spear"){ // ears
+      ctx.beginPath(); ctx.moveTo(p.x-e.r*0.7*s,p.y-H*0.98); ctx.lineTo(p.x-e.r*1.5*s,p.y-H*1.10); ctx.lineTo(p.x-e.r*0.6*s,p.y-H*0.88); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(p.x+e.r*0.7*s,p.y-H*0.98); ctx.lineTo(p.x+e.r*1.5*s,p.y-H*1.10); ctx.lineTo(p.x+e.r*0.6*s,p.y-H*0.88); ctx.closePath(); ctx.fill();
+    }
+    if(e.kind==="golem"){ ctx.fillStyle=hit?"#fff":"#D9663D";
+      for(let i=0;i<3;i++) ctx.fillRect(p.x-8*s+i*7*s,p.y-H*0.78+i*4*s,3*s,12*s); }
+    if(e.kind==="skeleton"){ ctx.strokeStyle="#8A8072"; ctx.lineWidth=2*s;
+      ctx.beginPath(); ctx.arc(p.x+e.r*1.1*s,p.y-H*0.7,10*s,-1.1,1.1); ctx.stroke(); }
+    if(e.kind==="spear"){ ctx.fillStyle="#6B4A2A"; ctx.fillRect(p.x+e.r*0.9*s,p.y-H*1.25,2.6*s,H*0.95);
+      ctx.fillStyle="#9AA0A6"; ctx.beginPath(); ctx.moveTo(p.x+e.r*0.9*s,p.y-H*1.25);
+      ctx.lineTo(p.x+e.r*0.9*s+5*s,p.y-H*1.16); ctx.lineTo(p.x+e.r*0.9*s+1.3*s,p.y-H*1.10); ctx.closePath(); ctx.fill(); }
+    if(e.kind==="goblin"||e.kind==="zombie"){ ctx.fillStyle="#8A8072";
+      ctx.fillRect(p.x+e.r*0.85*s,p.y-H*0.9,3*s,H*0.42); }
+  }
+  // tiny hp pip only while damaged (regular enemies get no name/bar — PRD 10.1)
+  if(e.hp<e.maxHp){ const w=e.r*2*s;
+    ctx.fillStyle="rgba(0,0,0,.6)"; ctx.fillRect(p.x-w/2,p.y-H*1.28,w,3*s);
+    ctx.fillStyle="#D94F3D"; ctx.fillRect(p.x-w/2,p.y-H*1.28,w*(e.hp/e.maxHp),3*s); }
+  ctx.restore();
+}
+function drawBoss(S){
+  const b=S.boss; if(!b) return;
+  const p=P(b.x,b.z), s=p.s*2.4;
+  ctx.save();
+  ctx.fillStyle="rgba(0,0,0,.4)"; ctx.beginPath(); ctx.ellipse(p.x,p.y,42*s,15*s,0,0,7); ctx.fill();
+  if(b.dead) ctx.globalAlpha=0.35;
+  const hit=b.hitT>0;
+  if(b.kind==="troll"){
+    ctx.fillStyle=hit?"#D94F3D":"#4F6B3A";
+    ctx.fillRect(p.x-16*s,p.y-30*s,10*s,30*s); ctx.fillRect(p.x+6*s,p.y-30*s,10*s,30*s);
+    rr(ctx,p.x-24*s,p.y-70*s,48*s,44*s,10*s); ctx.fill();
+    ctx.beginPath(); ctx.arc(p.x,p.y-80*s,15*s,0,7); ctx.fill();
+    ctx.fillStyle="#8A8072"; // crude crown, gray steel not gold
+    for(let i=-2;i<=2;i++){ ctx.beginPath(); ctx.moveTo(p.x+i*7*s-3*s,p.y-92*s); ctx.lineTo(p.x+i*7*s,p.y-101*s);
+      ctx.lineTo(p.x+i*7*s+3*s,p.y-92*s); ctx.closePath(); ctx.fill(); }
+    ctx.fillStyle="#6B4A2A"; ctx.save(); ctx.translate(p.x+30*s,p.y-46*s); ctx.rotate(0.5+Math.sin(S.t*1.4)*0.12);
+    ctx.fillRect(-4*s,-8*s,8*s,52*s); ctx.fillStyle="#7A5A38"; rr(ctx,-14*s,-30*s,28*s,26*s,7*s); ctx.fill(); ctx.restore();
+  } else if(b.kind==="necro"){
+    ctx.fillStyle=hit?"#D94F3D":"#2C2740";
+    ctx.beginPath(); ctx.moveTo(p.x-26*s,p.y); ctx.lineTo(p.x+26*s,p.y); ctx.lineTo(p.x+16*s,p.y-62*s);
+    ctx.lineTo(p.x-16*s,p.y-62*s); ctx.closePath(); ctx.fill();
+    ctx.fillStyle="#0E1018"; ctx.beginPath(); ctx.arc(p.x,p.y-70*s,15*s,0,7); ctx.fill();
+    ctx.fillStyle="#7F77DD"; ctx.beginPath(); ctx.arc(p.x-5*s,p.y-72*s,2.6*s,0,7); ctx.arc(p.x+5*s,p.y-72*s,2.6*s,0,7); ctx.fill();
+    ctx.fillStyle="#6B5A48"; ctx.fillRect(p.x+26*s,p.y-92*s,4*s,92*s);
+    ctx.fillStyle="#9BE38A"; ctx.beginPath(); ctx.arc(p.x+28*s,p.y-96*s,8*s,0,7); ctx.fill();
+  } else {
+    const flap=Math.sin(S.t*2.2)*10*s;
+    ctx.fillStyle=hit?"#D94F3D":"#5A2318";
+    ctx.beginPath(); ctx.moveTo(p.x-14*s,p.y-56*s); ctx.lineTo(p.x-76*s,p.y-76*s-flap); ctx.lineTo(p.x-20*s,p.y-30*s); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(p.x+14*s,p.y-56*s); ctx.lineTo(p.x+76*s,p.y-76*s+flap); ctx.lineTo(p.x+20*s,p.y-30*s); ctx.closePath(); ctx.fill();
+    ctx.fillStyle=hit?"#D94F3D":"#7A3020";
+    rr(ctx,p.x-22*s,p.y-64*s,44*s,50*s,12*s); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(p.x,p.y-80*s,20*s,13*s,0,0,7); ctx.fill();
+    ctx.fillStyle="#EFB63F"; ctx.beginPath(); ctx.arc(p.x-8*s,p.y-83*s,3*s,0,7); ctx.arc(p.x+8*s,p.y-83*s,3*s,0,7); ctx.fill();
+    ctx.fillStyle="#3A1C14"; ctx.beginPath(); ctx.moveTo(p.x-16*s,p.y-90*s); ctx.lineTo(p.x-24*s,p.y-106*s); ctx.lineTo(p.x-10*s,p.y-92*s); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(p.x+16*s,p.y-90*s); ctx.lineTo(p.x+24*s,p.y-106*s); ctx.lineTo(p.x+10*s,p.y-92*s); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+function drawProjectiles(S){
+  for(const p of S.projectiles){
+    const k=Math.min(1,p.t/p.dur);
+    let a,b2;
+    if(p.hostile){ a=P(p.x0,p.z0); const c=CIRCLES[p.circle]; b2=P(c.x,c.z-0.02); }
+    else { const c=CIRCLES[p.from]; a=P(c.x,c.z-0.02); b2=P(p.x1,p.z1); }
+    const x=a.x+(b2.x-a.x)*k, y=a.y+(b2.y-a.y)*k - Math.sin(k*Math.PI)*16;
+    const s=(a.s+(b2.s-a.s)*k);                       // scale = the depth cue (PRD 11.6)
+    ctx.save();
+    if(p.hostile){ ctx.fillStyle="#8A8072"; ctx.strokeStyle="#6B4A2A"; ctx.lineWidth=2.4*s;
+      ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x-(b2.x-a.x)*0.05,y-(b2.y-a.y)*0.05-4); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x,y,3*s,0,7); ctx.fill(); }
+    else { ctx.fillStyle=CLR_LT[p.cls]; ctx.beginPath(); ctx.arc(x,y,3.4*s,0,7); ctx.fill();
+      ctx.strokeStyle=CLR_LT[p.cls]; ctx.globalAlpha=.45; ctx.lineWidth=2*s;
+      ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x-(b2.x-a.x)*0.06,y-(b2.y-a.y)*0.06); ctx.stroke(); }
+    ctx.restore();
+  }
+}
+function drawFx(S){
+  for(const f of S.fx){
+    const k=f.t/0.9;
+    if(f.kind==="volley"){ const p=P(f.x,f.z);
+      ctx.strokeStyle="rgba(78,140,92,"+(1-k)+")"; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.ellipse(p.x,p.y,60*p.s*(0.5+k),24*p.s*(0.5+k),0,0,7); ctx.stroke();
+      for(let i=0;i<7;i++){ const ang=i/7*7+f.t*3;
+        ctx.fillStyle="rgba(78,140,92,"+(1-k)+")";
+        ctx.beginPath(); ctx.arc(p.x+Math.cos(ang)*50*p.s*k, p.y+Math.sin(ang)*20*p.s*k - 40*(1-k), 3*p.s,0,7); ctx.fill(); }
+    } else if(f.kind==="pierce"){ // persistent beam, not a travelling arrow (PRD 11.6)
+      const a=P(COLX[f.lane],ZFRONT), b2=P(COLX[f.lane],0.0);
+      ctx.strokeStyle="rgba(78,140,92,"+(1-k)+")"; ctx.lineWidth=10*(1-k)+2;
+      ctx.beginPath(); ctx.moveTo(a.x,a.y-14); ctx.lineTo(b2.x,b2.y-6); ctx.stroke();
+      ctx.strokeStyle="rgba(255,255,255,"+(0.7*(1-k))+")"; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(a.x,a.y-14); ctx.lineTo(b2.x,b2.y-6); ctx.stroke();
+    } else if(f.kind==="slam"){ const c=CIRCLES[f.circle], p=P(c.x,c.z);
+      for(let i=0;i<3;i++){ const kk=Math.max(0,k-i*0.12);
+        ctx.strokeStyle="rgba(217,210,194,"+(0.8*(1-kk))+")"; ctx.lineWidth=4*(1-kk)+1;
+        ctx.beginPath(); ctx.ellipse(p.x,p.y,320*kk,120*kk,0,0,7); ctx.stroke(); }
+    } else if(f.kind==="bulwark"){
+      ctx.strokeStyle="rgba(127,119,221,"+(1-k)*0.6+")"; ctx.lineWidth=3;
+      ctx.strokeRect(6,6,VW-12,VH-12);
+    } else if(f.kind==="heal"){
+      ctx.fillStyle="rgba(29,158,117,"+(0.18*(1-k))+")"; ctx.fillRect(0,0,VW,VH);
+    } else if(f.kind==="revive"){ const c=CIRCLES[f.circle], p=P(c.x,c.z);
+      ctx.fillStyle="rgba(242,201,76,"+(1-k)+")"; ctx.fillRect(p.x-8,p.y-160*(1-k)*0+ -160,16,160);
+    } else if(f.kind==="pop"){ const p=P(f.x,f.z);
+      ctx.fillStyle="rgba(217,79,61,"+(1-k)+")";
+      for(let i=0;i<6;i++){ const a2=i/6*7; ctx.beginPath();
+        ctx.arc(p.x+Math.cos(a2)*22*k*p.s, p.y+Math.sin(a2)*9*k*p.s, 3*p.s*(1-k),0,7); ctx.fill(); }
+    } else if(f.kind==="swing"){ const c=CIRCLES[f.circle], p=P(c.x,c.z);
+      ctx.strokeStyle="rgba(217,210,194,"+(0.7*(1-k))+")"; ctx.lineWidth=3;
+      ctx.beginPath(); ctx.arc(p.x,p.y-24,30*p.s,-2.2+k*1.6,-1.0+k*1.6); ctx.stroke();
+    }
+  }
+  // taunt aggro lines — red is enemy attention (PRD 11.5/11.7)
+  const tk=tank(S);
+  if(S.aggro>0 && tk && tk.alive){
+    const c=CIRCLES[tk.circle], a=P(c.x,c.z);
+    ctx.strokeStyle="rgba(217,79,61,.55)"; ctx.lineWidth=1.4;
+    for(const e of S.enemies){ const p=P(e.x,e.z);
+      ctx.beginPath(); ctx.moveTo(p.x,p.y-14*p.s); ctx.lineTo(a.x,a.y-20*a.s); ctx.stroke(); }
+    if(S.boss&&!S.boss.dead){ const p=P(S.boss.x,S.boss.z);
+      ctx.beginPath(); ctx.moveTo(p.x,p.y-20); ctx.lineTo(a.x,a.y-20); ctx.stroke(); }
+  }
+}
+function castleAnchor(){ const p=P(0,gateZ()); return {x:p.x, y:p.y-46}; }
+function drawNumbers(S){
+  ctx.textAlign="center";
+  for(const n of S.numbers){
+    const p = n.castle ? Object.assign(castleAnchor(),{s:1.0})
+            : n.world ? P(n.x,n.z) : (()=>{const c=CIRCLES[n.circle];return P(c.x,c.z);})();
+    const k=n.t/1.1;
+    ctx.globalAlpha=1-k; ctx.fillStyle=n.col;
+    ctx.font="800 "+(11+7*p.s).toFixed(0)+"px ui-sans-serif";
+    ctx.fillText(n.txt, p.x, p.y-34*p.s-34*k);
+    ctx.globalAlpha=1;
+  }
+}
+function render(S){
+  drawField(S); drawCircles(S,"front");
+  const ents=[...S.enemies.map(e=>({z:e.z,d:()=>drawEnemy(S,e)})),
+              ...S.heroes.map(h=>({z:CIRCLES[h.circle].z,d:()=>drawHero(S,h)}))];
+  if(S.boss) ents.push({z:S.boss.z,d:()=>drawBoss(S)});
+  ents.sort((a,b)=>a.z-b.z);
+  // Anything up the lane from the wall draws behind it — enemies piled on the gate have to
+  // read as being on the far side, or the melee-immunity rule stops being visible.
+  const wz=gateZ()+0.02;
+  ents.filter(o=>o.z<=wz).forEach(o=>o.d());
+  drawCastle(S);
+  drawCircles(S,"castle");
+  ents.filter(o=>o.z>wz).forEach(o=>o.d());
+  drawProjectiles(S); drawFx(S); drawNumbers(S);
+  if(armLane){ // lane picker for Piercing Shot
+    for(let c=0;c<4;c++){ const a=P(COLX[c],ZFRONT), b2=P(COLX[c],0);
+      ctx.strokeStyle= c===hoverLane? "rgba(239,182,63,.85)":"rgba(255,255,255,.20)";
+      ctx.lineWidth= c===hoverLane? 6:2;
+      ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b2.x,b2.y); ctx.stroke(); }
+    ctx.fillStyle="#EFB63F"; ctx.font="800 13px ui-sans-serif"; ctx.textAlign="center";
+    ctx.fillText("PICK A LANE", VW/2, VH*0.14);
+  }
+}
+
+/* ================================================================
+   PART 4b — AUDIO (WebAudio, synthesised — no asset folder needed)
+   Mirrors the visual grammar: a rising wind-up cue and a blunt impact
+   cue that share nothing, so ears and eyes tell you the same thing.
+   ================================================================ */
+const SND={ctx:null,on:true,vol:0.35};
+function ac(){ if(!SND.ctx){ try{ SND.ctx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ SND.on=false; } } return SND.ctx; }
+function tone(freq,dur,type,gain,slideTo){
+  if(!SND.on) return; const c=ac(); if(!c) return;
+  const o=c.createOscillator(), g=c.createGain();
+  o.type=type||"sine"; o.frequency.setValueAtTime(freq,c.currentTime);
+  if(slideTo) o.frequency.linearRampToValueAtTime(slideTo,c.currentTime+dur);
+  g.gain.setValueAtTime(0.0001,c.currentTime);
+  g.gain.exponentialRampToValueAtTime(Math.max(0.0002,(gain||0.2)*SND.vol),c.currentTime+0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001,c.currentTime+dur);
+  o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime+dur+0.02);
+}
+function noise(dur,gain,lp){
+  if(!SND.on) return; const c=ac(); if(!c) return;
+  const n=Math.floor(c.sampleRate*dur), b=c.createBuffer(1,n,c.sampleRate), d=b.getChannelData(0);
+  for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*(1-i/n);
+  const src=c.createBufferSource(); src.buffer=b;
+  const f=c.createBiquadFilter(); f.type="lowpass"; f.frequency.value=lp||900;
+  const g=c.createGain(); g.gain.value=(gain||0.3)*SND.vol;
+  src.connect(f); f.connect(g); g.connect(c.destination); src.start();
+}
+const SFX={
+  windup(mine){ tone(mine?330:240, 0.5, "triangle", mine?0.16:0.08, mine?520:360); },
+  impact(){ noise(0.22,0.5,700); tone(90,0.16,"square",0.16,55); },
+  swing(){ noise(0.09,0.18,1600); },
+  shot(){ tone(680,0.08,"triangle",0.08,900); },
+  die(){ noise(0.16,0.24,500); tone(200,0.12,"sawtooth",0.06,110); },
+  taunt(){ tone(150,0.5,"sawtooth",0.16,240); },
+  slam(){ noise(0.45,0.6,340); tone(70,0.4,"square",0.2,40); },
+  heal(){ tone(520,0.35,"sine",0.12,780); },
+  shield(){ tone(300,0.4,"sine",0.12,600); tone(450,0.4,"triangle",0.07,900); },
+  pierce(){ tone(900,0.22,"sawtooth",0.12,220); },
+  wave(){ tone(420,0.28,"triangle",0.12,560); },
+  boss(){ tone(120,0.9,"sawtooth",0.2,70); noise(0.6,0.3,300); },
+  win(){ [523,659,784,1046].forEach((f,i)=>setTimeout(()=>tone(f,0.4,"triangle",0.14),i*130)); },
+  lose(){ [392,330,262].forEach((f,i)=>setTimeout(()=>tone(f,0.6,"sine",0.14),i*220)); }
+};
+// Audio is driven off rendered state, never from inside the sim, so the sim
+// stays a pure module that can move to the server untouched.
+function audioWatch(S){
+  for(const g of S.telegraphs) if(!g._snd && g.t>0 && !g.done){ g._snd=1;
+    const p=S.heroes.find(h=>h.isPlayer); SFX.windup(p && g.circles.includes(p.circle)); }
+  for(const f of S.fx) if(!f._snd){ f._snd=1;
+    ({impact:SFX.impact, swing:SFX.swing, pop:SFX.die, slam:SFX.slam, heal:SFX.heal,
+      bulwark:SFX.shield, revive:SFX.heal, pierce:SFX.pierce, volley:SFX.shot}[f.kind]||function(){})(); }
+  if(S.phase==="pause" && !S._sndWave){ S._sndWave=1; SFX.wave(); }
+  if(S.phase==="wave" && S._sndWave){ S._sndWave=0; }
+  if(S.phase==="bossintro" && !S._sndBoss){ S._sndBoss=1; SFX.boss(); }
+}
+
+/* ================================================================
+   PART 5 — SHELL: screens, input, HUD, report
+   ================================================================ */
+const $=(id)=>document.getElementById(id);
+const G={ playerCls:"Tank", levelIdx:0, assign:{Tank:1,Ranger:7,Healer:4,Support:6},
+          S:null, attempts:{1:[],2:[],3:[]}, paused:false, running:false, sel:null };
+let armLane=false, hoverLane=-1;
+
+const DEVIATIONS=[
+ ["Single client, three bots","The PRD specifies 4 human players on an authoritative Node server. This is one browser file, so you play one hero and bots play the rest — but the simulation is a pure 20 Hz fixed-step module with no DOM access, so it lifts onto a server unchanged."],
+ ["Bulwark: duration, not one hit","6.3's confirmed text says it negates all damage for a fixed duration; the placeholder numbers under it say it absorbs one hit per hero. Built to the confirmed text, duration matched to Taunt."],
+ ["Boss standing distance","Unspecified anywhere in the PRD, and it decides whether the Tank contributes at all. The Troll King walks into reach of the front row, so a back-row Tank does nothing all fight. Worth locking deliberately in v1.6 — moving a boss three hundredths of a lane changed a win rate from 22% to 100% in trials."],
+ ["Piercing Shot targets a column","6.4 says the player picks a lane or row. A row would hit four circles' worth of nothing; a column is the line enemies actually walk down. Click a lane after pressing E."],
+ ["Auto-attack range now exists","Section 6 says heroes attack the nearest valid target <i>in range</i>, but no range was ever specified, so the first build gave everyone infinite reach and enemies died at the spawn line. Ranger reaches 0.52 of the lane, Healer and Support 0.40, Tank 0.17. This is the number that decides whether a melee line forms at all — it needs a real value in v1.6."],
+ ["Ranged targeting patterns assigned","9.2 left the pattern library as an open task. Spear throwers use the single-circle pattern and throw at their own column when it is held, so a lane you occupy is a lane that gets hit. That is learnable within one attempt, which is the point."],
+ ["Boss and castle HP re-tuned on the harness for once-per-stage","8.1's 'roughly 3-4x a wave-5 grunt' would be an 80 HP boss. The old 2100 was tuned when Bulwark refreshed every wave, so the team reached the boss with a guaranteed fresh charge — under once-per-stage <b>no formation won a single trial in 240 runs</b> at 2100. The Troll King is now 1000 HP. Castle HP is 900, not the 1200 suggested in 5.4: at 1200 an all-wall turtle formation out-scored playing properly, which is the one outcome the castle exists to prevent. Both numbers are harness output against the 5.4 brief, which asked for exactly this."],
+ ["Siege prevention: both recommended options are built","8.5 raises three candidates and picks none. This build implements the two the PRD recommends — Taunt during the wind-up redirects the siege onto the Tank, and SHIFT+E lets the Support spend Bulwark on the castle instead of the party. Hammer Slam does not interrupt. Two answers, one charge, which is the shape 8.5 argues for — but it is an implementation of a recommendation, not of a decision. <b>Needs sign-off.</b>"],
+ ["Necromancer got a siege attack","8.5 left open whether the Necromancer needs one given that its summons already threaten the gate. Built with one (Grave Tide) for consistency across the three bosses, per the PRD's own recommendation."],
+ ["Stage length is a slider, not a decision","Section 6 flags shortening the stage from 5 waves to 3 as the recommended fix for once-per-stage Revive dead time, and recommends it — but does not apply it. <code>wavesPerStage</code> defaults to 5 (the canonical 9.3 value) and slides to 3, so both can be tested rather than one being chosen here."],
+ ["Castle damage does not persist between levels","5.4 leaves this open and recommends refilling per level. This build refills — the castle is re-created at full HP on every level start. Per-attempt totals are kept in the report history so the trend survives even though the consequence does not."],
+ ["Ranged enemies can hit heroes on the wall at 50%","5.4 sets wall cover as a flagged tunable rather than a confirmed number. Built at 0.50. If the wall blocked arrows entirely, the rampart would be a total sanctuary on Levels 1-2 and the trade would collapse."],
+ ["Enemies cannot slip through gaps in the front line","5.3 as written sends melee to the gate only when NO living hero holds a front circle, so two heroes forward seal all four lanes. That makes gate damage close to binary during regular waves. Plate 12 draws the opposite — goblins at the gate with heroes alive on circles 0 and 3. One of the two is wrong; this build follows the PRD text. Worth deciding, because letting enemies leak through gaps would make the front-line trade continuous rather than all-or-nothing."]
+];
+$("devList").innerHTML = DEVIATIONS.map(d=>"<b>"+d[0]+".</b> "+d[1]).join("<br><br>");
+
+/* ---- class select ---- */
+function buildClassGrid(){
+  $("classGrid").innerHTML="";
+  for(const c of CLASSES){
+    const b=document.createElement("button");
+    b.className="classCard"+(G.playerCls===c?" sel":"");
+    b.innerHTML='<div class="nm">'+c+'</div><div class="band" style="background:'+CLR_LT[c]+'"></div>'+
+      '<div class="ab"><b>Q</b> '+ABIL[c][0][0]+'<br><b>E</b> '+ABIL[c][1][0]+'</div>';
+    b.onclick=()=>{G.playerCls=c;buildClassGrid();};
+    $("classGrid").appendChild(b);
+  }
+}
+buildClassGrid();
+
+/* ---- circle selection ---- */
+function buildSelect(){
+  const L=LEVELS[G.levelIdx];
+  $("selTitle").textContent="Level "+L.id; $("selTheme").textContent=L.name;
+  $("selAttempt").textContent="Attempt "+(G.attempts[L.id].length+1);
+  const bd=$("selBoard"); bd.innerHTML="";
+  for(let i=0;i<8;i++){
+    const row=i<4?0:1;
+    const d=document.createElement("div");
+    d.className="selCircle "+(row===0?"front":"castle");
+    const who=Object.keys(G.assign).find(k=>G.assign[k]===i);
+    if(who){ d.classList.add("taken"); d.style.borderColor=CLR_LT[who]; d.style.background=CLR[who]+"55"; }
+    d.innerHTML='<div class="cid">'+i+(row===0?" · FRONT":" · WALL")+'</div>'+
+      (who?'<div class="who" style="color:'+CLR_LT[who]+'">'+who+'</div>'+
+           (netNameFor(who)?'<div class="cid" style="margin-top:2px">'+netNameFor(who)+'</div>':''):'');
+    d.onclick=()=>{
+      if(NET.role==="client"){
+        // A client may only move its own hero. Circle Selection is where the plan becomes
+        // a commitment, so it has to be shared state — but nobody gets to move anyone else.
+        const mine=NET.myCls;
+        if(who===mine) NET.host.send(JSON.stringify({t:"claim", cls:mine, circle:null}));
+        else if(!who) NET.host.send(JSON.stringify({t:"claim", cls:mine, circle:i}));
+        return;
+      }
+      if(who){ delete G.assign[who]; G.sel=who; }
+      else if(G.sel){ G.assign[G.sel]=i; G.sel=null; }
+      else { const free=CLASSES.find(c=>G.assign[c]===undefined); if(free) G.assign[free]=i; }
+      buildSelect(); netPushLobby();
+    };
+    bd.appendChild(d);
+  }
+  $("selRoster").innerHTML="";
+  for(const c of CLASSES){
+    const b=document.createElement("button");
+    b.className="btn"+(G.sel===c?" primary":"");
+    b.style.borderColor=CLR_LT[c];
+    const nm=netNameFor(c);
+    b.textContent=c+(nm?" · "+nm:"")+(G.assign[c]!==undefined?" · "+G.assign[c]:" · unplaced")+
+      (c===NET.myCls?" (you)":"");
+    b.onclick=()=>{ G.sel = G.sel===c?null:c; buildSelect(); };
+    $("selRoster").appendChild(b);
+  }
+  const ready=CLASSES.every(c=>G.assign[c]!==undefined);
+  $("btnBegin").disabled=!ready || NET.role==="client";
+  if(NET.role==="client") $("btnBegin").textContent="Waiting for the host";
+  $("selHint").textContent = G.sel ? "Now click a circle to place the "+G.sel+"." :
+    ready? "All four placed. Nothing about the enemies is shown before you start." : "Click a hero, then a circle.";
+}
+$("btnAuto").onclick=()=>{ G.assign={Tank:1,Ranger:7,Healer:4,Support:6}; G.sel=null; buildSelect(); };
+$("btnClear").onclick=()=>{ G.assign={}; G.sel=null; buildSelect(); };
+$("btnBegin").onclick=()=>startLevel();
+$("btnStart").onclick=()=>{ show("scrLobby"); };
+
+function show(id){ for(const s of document.querySelectorAll(".screen")) s.classList.toggle("on",s.id===id);
+  $("gameWrap").classList.toggle("on", id==="game"); if(id==="game") resize(); }
+
+/* ================================================================
+   PART 5b — NETWORK: lobby codes, host authority, snapshot replication
+
+   Deployment reality this is built around: the players are on different
+   networks and nobody can install or deploy anything. That rules out a Node
+   server, so the HOST'S BROWSER is the authority — it runs the same
+   deterministic sim the harness runs, and streams state to everyone else.
+   A lobby code has to resolve to something, so PeerJS's public broker is the
+   rendezvous. Nothing is installed and no account is needed; the cost is that
+   the connection is WebRTC, which strict corporate NAT can refuse. See
+   NET.diagnose() and the note on the lobby screen.
+   ================================================================ */
+const NET = {
+  role:"solo",            // "solo" | "host" | "client"
+  peer:null, conns:[], host:null,
+  code:null, seats:{},    // cls -> {name, id} | null  (null = bot)
+  myCls:null, snap:null, lastSnapT:0, status:""
+};
+const NET_PREFIX = "laststand-v19-";
+let netShift=false;
+
+/* WebRTC needs help crossing NAT. STUN alone works on most home connections but fails on
+   the symmetric NAT that corporate networks typically use — the two browsers discover each
+   other's addresses and still cannot open a path. A TURN relay fixes that by forwarding the
+   traffic through a third machine, at the cost of going through someone else's server.
+   These are free public relays: fine for testing, not something to depend on for a session
+   that matters. Port 443 over TCP is deliberate — it looks like ordinary HTTPS and gets
+   through firewalls that drop UDP entirely. */
+const ICE = { iceServers:[
+  {urls:["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"]},
+  {urls:"turn:openrelay.metered.ca:80", username:"openrelayproject", credential:"openrelayproject"},
+  {urls:"turn:openrelay.metered.ca:443", username:"openrelayproject", credential:"openrelayproject"},
+  {urls:"turn:openrelay.metered.ca:443?transport=tcp", username:"openrelayproject", credential:"openrelayproject"}
+]};
+NET.broker=null;   // null = PeerJS public cloud; override with NET.setBroker(...)
+const PEER_OPTS = ()=>Object.assign({debug:2, config:ICE}, NET.broker||{});
+NET.setBroker=function(host,port,path,secure){
+  NET.broker={host,port:port||443,path:path||"/",secure:secure!==false,key:"peerjs"};
+  netStatus("Broker set to "+host+". Press Retry connection."); return NET.broker;
+};
+
+/* Is the broker reachable at all? This is an ordinary HTTPS request, so it answers a
+   different question from testRelay(): not "can WebRTC cross the NAT" but "can this page
+   talk to the signalling server in the first place". A file:// page fails here every time,
+   because its origin is null and the browser refuses the cross-origin request. */
+NET.testBroker=function(){
+  const url = NET.broker ? (NET.broker.secure?"https":"http")+"://"+NET.broker.host+":"+NET.broker.port+NET.broker.path
+                         : "https://0.peerjs.com/";
+  console.log("origin:", location.origin, "| protocol:", location.protocol);
+  if(location.protocol==="file:") console.warn("Opened as a local file. Cross-origin fetch is blocked from file:// — multiplayer cannot work until this page is served over http(s).");
+  return fetch(url, {mode:"cors"})
+    .then(r=>{ console.log("broker reachable, HTTP", r.status); return true; })
+    .catch(err=>{ console.error("broker unreachable:", err.message,
+      "\n  → if protocol is file:, host the page. If it is https and this still fails, the domain is blocked on this network."); return false; });
+};
+
+/* Report which stage failed, because the four failures have four different fixes:
+   library didn't load / broker unreachable / no lobby with that code / path never opened. */
+function netWatch(conn, who){
+  const pc = ()=>conn.peerConnection;
+  const tick=setInterval(()=>{
+    const c=pc(); if(!c) return;
+    NET.ice=c.iceConnectionState;
+    if(c.iceConnectionState==="failed"){
+      netStatus("Could not open a path to the "+who+". Both networks are blocking WebRTC and the relay did not help.");
+      clearInterval(tick);
+    }
+    if(conn.open) clearInterval(tick);
+  },700);
+  setTimeout(()=>clearInterval(tick), 45000);
+}
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";   // no I/O/0/1 — these get read aloud
+function makeCode(){ let c=""; for(let i=0;i<4;i++) c+=CODE_CHARS[Math.floor(Math.random()*CODE_CHARS.length)]; return c; }
+function netMyName(){
+  const el=$("playerName"), v=el&&el.value.trim();
+  return v || (NET.role==="host"?"Host":"Player");
+}
+// Bots have no name. Returning null rather than "bot" lets each caller decide how to say so.
+function netNameFor(cls){
+  if(NET.role==="solo") return null;
+  const seat=NET.seats&&NET.seats[cls];
+  return seat? seat.name : null;
+}
+function netStatus(t){
+  NET.status=t;
+  // Write to both panels. The earlier version only wrote to the in-room status line, which
+  // lives inside a hidden div — so a failure before the room opened was completely silent
+  // and the Host button looked like it did nothing at all.
+  for(const id of ["lobStatus","lobHomeStatus"]){ const el=$(id); if(el) el.textContent=t; }
+  console.log("[net]",t);
+}
+
+function netSeatsInit(){ NET.seats={}; for(const c of CLASSES) NET.seats[c]=null; }
+function netFreeSeat(){ return CLASSES.find(c=>!NET.seats[c]); }
+function netBroadcast(msg){ const s=JSON.stringify(msg); for(const c of NET.conns) if(c.open) c.send(s); }
+
+/* ---- host ---- */
+function netHost(){
+  if(!window.Peer){ netStatus("PeerJS failed to load — the network blocked unpkg.com. Solo still works."); return; }
+  NET.role="host"; netSeatsInit();
+  NET.code=makeCode(); NET.myCls="Tank"; NET.name=netMyName();
+  NET.seats.Tank={name:NET.name,id:"host"};
+  $("lobHome").style.display="none"; $("lobRoom").style.display="";
+  $("lobCode").textContent=NET.code;
+  $("lobShare").innerHTML="Everyone needs their own copy of this file — send it round, they open it, click Join, type the code. "+
+    "Any seat nobody takes stays on a bot. <span id='lobLink'></span>";
+  netShareLink();
+  netRenderSeats();
+  netHostOpen(0);
+  netHostConnHandler = conn=>{
+    netWatch(conn, "player");
+    conn.on("open", ()=>{
+      const seat=netFreeSeat();
+      if(!seat){ conn.send(JSON.stringify({t:"full"})); setTimeout(()=>conn.close(),300); return; }
+      conn.meta={cls:seat};
+      let nm=(conn.metadata&&conn.metadata.name||"Player").slice(0,14);
+      // two people called Sam is a workshop certainty
+      if(Object.values(NET.seats).some(x=>x&&x.name===nm)) nm=nm+" (2)";
+      NET.seats[seat]={name:nm, id:conn.peer};
+      NET.conns.push(conn); netRenderSeats();
+      conn.send(JSON.stringify({t:"seat", cls:seat}));
+      netBroadcast({t:"seats", seats:NET.seats});
+      netStatus(Object.values(NET.seats).filter(Boolean).length+" of 4 seats filled.");
+    });
+    conn.on("data", raw=>netHostRecv(conn, JSON.parse(raw)));
+    conn.on("close", ()=>{
+      if(conn.meta){ NET.seats[conn.meta.cls]=null; }
+      NET.conns=NET.conns.filter(c=>c!==conn);
+      netRenderSeats(); netBroadcast({t:"seats", seats:NET.seats});
+      netStatus("A player dropped — a bot took the seat.");
+    });
+  };
+}
+let netHostConnHandler=null;
+
+/* The earlier version handled an ID collision by drawing a new code on screen and leaving
+   the old dead peer in place — so the lobby advertised a code that nothing was listening on
+   and every join failed with "no lobby with that code". The peer has to be rebuilt. */
+function netHostOpen(attempt){
+  if(attempt>4){ netStatus("Could not register a lobby code after several tries. The broker may be down or rate-limited."); return; }
+  if(NET.peer){ try{ NET.peer.destroy(); }catch(e){} NET.peer=null; }
+  netStatus(attempt? "Code was taken — trying "+NET.code+"…" : "Opening the lobby…");
+  let opened=false;
+  try{ NET.peer = new Peer(NET_PREFIX+NET.code, PEER_OPTS()); }
+  catch(err){ netStatus("Could not open a connection: "+err.message); return; }
+  NET.peer.on("open", ()=>{ opened=true; netStatus("Lobby open on code "+NET.code+". Waiting for players."); });
+  NET.peer.on("connection", c=>netHostConnHandler&&netHostConnHandler(c));
+  NET.peer.on("disconnected", ()=>{ netStatus("Lost the broker — reconnecting…");
+    try{ NET.peer.reconnect(); }catch(e){} });
+  NET.peer.on("error", err=>{
+    if(err.type==="unavailable-id"){ NET.code=makeCode(); $("lobCode").textContent=NET.code;
+      netShareLink(); netHostOpen(attempt+1); return; }
+    if(err.type==="network"||err.type==="server-error"){
+      netStatus("Cannot reach the lobby server ("+err.type+"). Run NET.testBroker() in the console — it will say whether this is the file:// problem or the domain being blocked."); return; }
+    netStatus("Network error ("+err.type+"). Solo still works.");
+  });
+  setTimeout(()=>{ if(!opened) netStatus("The broker is not responding. It may be blocked on this network."); }, 12000);
+}
+
+/* Input from a client. The host never trusts a client's view of its own
+   cooldowns: it re-runs useAbility against authoritative state, which is the
+   same validation PRD 12 asks for and matters more now that Ability 2 is one
+   charge for the whole attempt rather than one per wave. */
+function netHostRecv(conn, m){
+  const cls=conn.meta&&conn.meta.cls; if(!cls) return;
+  if(m.t==="claim" && G.phase!=="playing"){
+    if(m.circle===null){ delete G.assign[cls]; }
+    else if(!Object.keys(G.assign).some(k=>G.assign[k]===m.circle)) G.assign[cls]=m.circle;
+    buildSelect(); netPushLobby();
+  }
+  if(m.t==="ability" && G.S && !G.S.over){
+    const h=G.S.heroes.find(x=>x.cls===cls); if(!h||!h.alive) return;
+    if(cls==="Support" && m.castle) h.castleBulwark=true;
+    if(cls==="Ranger" && m.lane!==undefined) h.pendingLane=m.lane;
+    useAbility(G.S,h,m.which);
+    if(h) h.castleBulwark=false;
+  }
+}
+function netPushLobby(){ if(NET.role==="host") netBroadcast({t:"lobby", assign:G.assign, seats:NET.seats}); }
+
+/* ---- client ---- */
+function netJoin(code){
+  if(!window.Peer){ netStatus("PeerJS failed to load — the network blocked unpkg.com."); return; }
+  NET.role="client"; NET.code=code; NET.name=netMyName();
+  $("lobJoin").style.display="none"; $("lobRoom").style.display="";
+  $("lobCode").textContent=code; $("lobShare").textContent="Connected to the host. The host starts the level.";
+  $("btnLobGo").style.display="none";
+  netStatus("Reaching the broker…");
+  if(NET.peer){ try{ NET.peer.destroy(); }catch(e){} }
+  NET.peer=new Peer(PEER_OPTS());
+  let brokerOpen=false;
+  NET.peer.on("open", ()=>{
+    brokerOpen=true;
+    netStatus("Broker reached. Looking for lobby "+code+"…");
+    const conn=NET.peer.connect(NET_PREFIX+code, {reliable:true, metadata:{name:NET.name}});
+    NET.host=conn; netWatch(conn, "host");
+    conn.on("open", ()=>netStatus("Connected to the host. Waiting for them to start."));
+    conn.on("data", raw=>netClientRecv(JSON.parse(raw)));
+    conn.on("close", ()=>{ netStatus("Host disconnected."); G.running=false; });
+    conn.on("error", err=>netStatus("Connection error: "+(err.type||err.message)));
+    setTimeout(()=>{ if(!conn.open && NET.ice!=="failed")
+      netStatus("Found the lobby but the connection never opened"+(NET.ice?" (ICE: "+NET.ice+")":"")+
+                ". Usually a firewall dropping WebRTC on one side."); }, 20000);
+  });
+  NET.peer.on("error", err=>{
+    if(err.type==="peer-unavailable") netStatus("No lobby is open on code "+code+". Check the code, and that the host still has their tab open.");
+    else if(err.type==="network"||err.type==="server-error")
+      netStatus("Cannot reach the lobby server ("+err.type+"). Run NET.testBroker() in the console to find out why.");
+    else netStatus("Network error ("+err.type+").");
+  });
+  setTimeout(()=>{ if(!brokerOpen) netStatus("The broker is not responding. It may be blocked on this network."); }, 12000);
+}
+function netClientRecv(m){
+  if(m.t==="seat"){ NET.myCls=m.cls; G.playerCls=m.cls; netStatus("You are the "+m.cls+"."); }
+  if(m.t==="full") netStatus("That lobby is full.");
+  if(m.t==="seats"){ NET.seats=m.seats; netRenderSeats(); }
+  if(m.t==="lobby"){ NET.seats=m.seats; G.assign=m.assign; netRenderSeats();
+    if($("scrSelect").classList.contains("on")) buildSelect(); }
+  if(m.t==="toSelect"){ show("scrSelect"); buildSelect(); }
+  if(m.t==="start"){ G.assign=m.assign; netClientStart(); }
+  if(m.t==="snap"){
+    if(m.s.log===null && G.S) m.s.log=G.S.log;      // unchanged since the last frame
+    NET.snap=m.s; NET.lastSnapT=performance.now();
+    if(!G.running) netClientStart();
+    G.S=m.s; }
+  if(m.t==="end"){ G.running=false; NET.snap=null;
+    G.S=m.s; buildReport(m.att, LEVELS[G.levelIdx]);
+    if(m.att.result==="won"){ buildWin(m.att, LEVELS[G.levelIdx]); show("scrWin"); } else show("scrReport"); }
+}
+function netClientStart(){ G.running=true; G.paused=false; armLane=false;
+  show("game"); buildAbilityBar(); buildSwapBar(); resize(); }
+
+/* ---- snapshot: everything the renderer reads, and nothing else.
+   S.rng is a closure and must not be serialised — rebuilt as a stub client-side. --- */
+const r2=v=>Math.round(v*100)/100, r3=v=>Math.round(v*1000)/1000;
+function netSnapshot(S){
+  // Coordinates are rounded on the wire. Full float precision costs about three times the
+  // bandwidth and buys nothing: the renderer maps a lane unit onto a few hundred pixels,
+  // so three decimal places is already sub-pixel.
+  return { t:r2(S.t), phase:S.phase, phaseT:S.phaseT, wave:S.wave, over:S.over, overReason:S.overReason,
+    levelIdx:G.levelIdx, L:S.L, aggro:S.aggro,   // whole level def: static, tiny, and drawField reads its palette
+    castle:S.castle, telegraphs:S.telegraphs, fx:S.fx, numbers:S.numbers, log:S.log.slice(-8),
+    boss:S.boss && {x:S.boss.x,z:S.boss.z,hp:S.boss.hp,maxHp:S.boss.hp>0?S.boss.maxHp:S.boss.maxHp,
+      dead:S.boss.dead,enraged:S.boss.enraged,kind:S.boss.kind,step:S.boss.step},
+    heroes:S.heroes.map(h=>({cls:h.cls,circle:h.circle,name:netNameFor(h.cls),hp:r2(h.hp),maxHp:h.maxHp,alive:h.alive,
+      cd1:r2(h.cd1),ch2:h.ch2,bulwark:r2(h.bulwark),empower:r2(h.empower),poison:r2(h.poison),
+      atkCd:r2(h.atkCd),isPlayer:h.cls===NET.myCls,deathT:h.deathT,deathWave:h.deathWave})),
+    enemies:S.enemies.filter(e=>!e.dead).map(e=>({x:r3(e.x),z:r3(e.z),kind:e.kind,arch:e.arch,label:e.label,
+      hp:r2(e.hp),maxHp:e.maxHp,dead:false,engaged:e.engaged,target:e.target,wind:r2(e.wind||0)})),
+    projectiles:S.projectiles||[] };
+}
+let netTick=0, netLastLog=0;
+function netHostTick(S){
+  if(NET.role!=="host"||!NET.conns.length) return;
+  // 10 Hz, not 20. Enemies cross the lane over tens of seconds and telegraphs run 1.7s, so
+  // 100ms of granularity is invisible, and it halves what the host has to push upstream to
+  // three clients at once — which matters when the host is on a home connection.
+  if(++netTick % 2) return;
+  const snap=netSnapshot(S);
+  if(S.log.length===netLastLog) snap.log=null; else netLastLog=S.log.length;
+  netBroadcast({t:"snap", s:snap});
+}
+function netRenderSeats(){
+  const el=$("lobSeats"); if(!el) return; el.innerHTML="";
+  for(const c of CLASSES){
+    const seat=NET.seats[c], d=document.createElement("div");
+    d.className="btn"; d.style.borderColor=CLR_LT[c]; d.style.cursor="default";
+    d.textContent=c+" — "+(seat? seat.name : "bot")+(c===NET.myCls?" (you)":"");
+    d.style.fontWeight=seat?"700":"400";
+    if(!seat) d.style.opacity=".55";
+    el.appendChild(d);
+  }
+}
+NET.diagnose=function(){
+  const rows={
+    "library loaded": !!window.Peer,
+    "role": NET.role, "code": NET.code, "seat": NET.myCls,
+    "broker id": NET.peer && NET.peer.id,
+    "broker connected": !!(NET.peer && !NET.peer.disconnected && !NET.peer.destroyed),
+    "data channel open": NET.role==="client" ? !!(NET.host && NET.host.open) : NET.conns.filter(c=>c.open).length+" of "+NET.conns.length,
+    "ICE state": NET.ice||"n/a",
+    "last snapshot": NET.lastSnapT? Math.round(performance.now()-NET.lastSnapT)+"ms ago" : "never",
+    "last status": NET.status
+  };
+  console.table ? console.table(rows) : console.log(rows);
+  return rows;
+};
+/* Does a relay actually work from here? Answers the one question that matters before a
+   session: run NET.testRelay() in the console on each machine. */
+NET.testRelay=function(){
+  return new Promise(res=>{
+    const pc=new RTCPeerConnection(ICE); const found={host:0,srflx:0,relay:0};
+    pc.createDataChannel("t");
+    pc.onicecandidate=ev=>{
+      if(!ev.candidate){ console.table(found);
+        console.log(found.relay? "Relay reachable — cross-network play should work."
+                               : "No relay candidates. Corporate NAT will likely block joining.");
+        pc.close(); res(found); return; }
+      const t=/ typ (\w+)/.exec(ev.candidate.candidate); if(t) found[t[1]]=(found[t[1]]||0)+1;
+    };
+    pc.createOffer().then(o=>pc.setLocalDescription(o));
+    setTimeout(()=>{ try{pc.close();}catch(e){} res(found); }, 12000);
+  });
+};
+
+/* If this file is served from a URL rather than passed round by hand, a join link is much
+   kinder than reading four characters down a call. Silently skipped on file://, where a
+   link would be meaningless because everyone has their own local copy. */
+function netShareLink(){
+  const el=$("lobLink"); if(!el) return;
+  if(location.protocol==="file:"){ el.textContent=""; return; }
+  const url=location.href.split("?")[0]+"?join="+NET.code;
+  el.innerHTML='Or send them this link: <a href="'+url+'" style="color:var(--gold)">'+url+'</a>';
+}
+function netAutoJoin(){
+  const m=/[?&]join=([A-Za-z0-9]{4})/.exec(location.search);
+  if(!m) return false;
+  show("scrLobby"); $("lobHome").style.display="none";
+  netJoin(m[1].toUpperCase()); return true;
+}
+
+/* Tell the user up front whether this can work at all, instead of letting them discover
+   it by clicking a button that appears dead. */
+function netCheckReady(){
+  if(location.protocol==="file:"){
+    netStatus("Multiplayer needs this page served from a web address. Opened straight from disk, the browser blocks the connection to the lobby server before it starts. Put the file on any static host and open it from there. Solo works fine as a local file.");
+    for(const id of ["btnHost","btnJoinUi"]){ const b=$(id); if(b){ b.disabled=true; b.style.opacity=".45"; } }
+    return false;
+  }
+  if(window.Peer) return true;
+  netStatus("Networking library did not load — this network is blocking the CDN, or there is no internet. Solo still works.");
+  for(const id of ["btnHost","btnJoinUi"]){ const b=$(id); if(b){ b.disabled=true; b.style.opacity=".45"; } }
+  return false;
+}
+$("btnAbout").onclick=()=>show("scrTitle");
+$("btnSolo").onclick=()=>{ NET.role="solo"; NET.myCls=G.playerCls; show("scrSelect"); buildSelect(); };
+$("btnHost").onclick=()=>netHost();
+$("btnJoinUi").onclick=()=>{ $("lobHome").style.display="none"; $("lobJoin").style.display=""; $("joinCode").focus(); };
+$("btnJoinBack").onclick=()=>{ $("lobJoin").style.display="none"; $("lobHome").style.display=""; };
+$("btnJoinGo").onclick=()=>{ const c=$("joinCode").value.trim().toUpperCase();
+  if(c.length===4) netJoin(c); else netStatus("Codes are four characters."); };
+$("joinCode").addEventListener("keydown",ev=>{ if(ev.key==="Enter") $("btnJoinGo").click(); });
+$("btnLobGo").onclick=()=>{ show("scrSelect"); buildSelect(); netBroadcast({t:"toSelect"}); netPushLobby(); };
+$("btnLobRetry").onclick=()=>{
+  if(NET.role==="host"){ NET.conns=[]; netSeatsInit(); NET.seats.Tank={name:"You (host)",id:"host"};
+    netRenderSeats(); netHostOpen(0); }
+  else if(NET.code) netJoin(NET.code);
+};
+$("btnLobLeave").onclick=()=>{ try{NET.peer&&NET.peer.destroy();}catch(e){}
+  NET.role="solo"; NET.conns=[]; NET.peer=null;
+  $("lobRoom").style.display="none"; $("lobJoin").style.display="none"; $("lobHome").style.display=""; };
+
+/* ---- level lifecycle ---- */
+function startLevel(){
+  if(NET.role==="client") return;                     // only the host starts a level
+  G.S = newSim(G.levelIdx, G.assign, NET.role==="host"?NET.myCls:G.playerCls,
+               1000 + G.attempts[LEVELS[G.levelIdx].id].length*7 + G.levelIdx*31);
+  G.running=true; G.paused=false; armLane=false;
+  // seats that nobody claimed keep their bot, which is also the absent-player case
+  if(NET.role==="host") netBroadcast({t:"start", assign:G.assign});
+  show("game"); buildAbilityBar(); buildSwapBar(); resize();
+}
+function endLevel(){
+  const S=G.S, L=LEVELS[G.levelIdx];
+  if(S.over==="won") SFX.win(); else SFX.lose();
+  const attempt={ n:G.attempts[L.id].length+1, result:S.over, wave:S.phase==="boss"?"Boss":"Wave "+S.wave,
+    dur:S.t, stats:JSON.parse(JSON.stringify(S.stats)), log:S.log.slice(),
+    deaths:S.heroes.filter(h=>!h.alive).map(h=>({cls:h.cls,t:h.deathT,wave:h.deathWave})),
+    reason:S.overReason,
+    castle:JSON.parse(JSON.stringify(S.castle)),
+    unspent:CLASSES.filter(c=>{const h=S.heroes.find(x=>x.cls===c); return h && h.ch2;}),
+    bossPct: S.boss? Math.max(0,S.boss.hp/S.boss.maxHp):1 };
+  G.attempts[L.id].push(attempt);
+  G.running=false; G.lastAttempt=attempt;
+  buildReport(attempt,L);
+  if(NET.role==="host") netBroadcast({t:"end", att:attempt, s:netSnapshot(S)});
+  if(attempt.result==="won"){ buildWin(attempt,L); show("scrWin"); } else show("scrReport");
+}
+function buildWin(att,L){
+  const hist=G.attempts[L.id], tries=hist.length;
+  const survivors=CLASSES.filter(c=>!att.deaths.find(d=>d.cls===c));
+  const best=CLASSES.reduce((a,c)=>att.stats[c].dmg>att.stats[a].dmg?c:a);
+  $("winStats").innerHTML =
+    '<div class="chart"><div class="ct">This attempt</div><table>'+
+    '<tr><td>Attempts taken</td><td>'+tries+'</td></tr>'+
+    '<tr><td>Clear time</td><td>'+att.dur.toFixed(0)+'s</td></tr>'+
+    '<tr><td>Heroes standing</td><td>'+survivors.length+' of 4</td></tr>'+
+    '<tr><td>Most damage</td><td style="color:'+CLR_LT[best]+'">'+best+'</td></tr>'+
+    '<tr><td>Party damage taken</td><td>'+Math.round(CLASSES.reduce((a,c)=>a+att.stats[c].taken,0))+'</td></tr>'+
+    '</table></div>'+
+    '<div class="chart"><div class="ct">Who went down</div>'+
+    (att.deaths.length? '<table>'+att.deaths.map(d=>'<tr><td style="color:'+CLR_LT[d.cls]+'">'+d.cls+
+      '</td><td>'+WLBL[Math.max(0,d.wave)]+'</td></tr>').join("")+'</table>'
+     : '<div class="sub">Nobody. Clean run — try a tighter formation or push the tuning drawer against yourselves.</div>')+
+    '</div>';
+}
+
+/* ---- HUD ---- */
+function buildAbilityBar(){
+  const S=G.S, p=S.heroes.find(h=>h.isPlayer);
+  $("hudAb").innerHTML="";
+  ABIL[p.cls].forEach((a,i)=>{
+    const b=document.createElement("button"); b.className="abtn"; b.id="ab"+i;
+    b.innerHTML='<div class="k">'+a[1]+'</div><div class="n">'+a[0]+'</div><div class="sweep"></div>';
+    b.onclick=()=>pressAbility(i+1);
+    b.title=a[2];
+    $("hudAb").appendChild(b);
+  });
+}
+function buildSwapBar(){
+  $("hudSwap").innerHTML="";
+  CLASSES.forEach((c,i)=>{
+    const b=document.createElement("button"); b.className="swp"; b.dataset.cls=c;
+    b.textContent=i+1; b.style.borderColor=CLR_LT[c];
+    b.onclick=()=>takeOver(c); $("hudSwap").appendChild(b);
+  });
+}
+function takeOver(cls){
+  const S=G.S; if(!S) return;
+  for(const h of S.heroes) h.isPlayer = h.cls===cls;
+  G.playerCls=cls; armLane=false; buildAbilityBar();
+}
+function pressAbility(which){
+  if(NET.role==="client"){
+    const p=G.S&&G.S.heroes.find(h=>h.isPlayer);
+    NET.host && NET.host.open && NET.host.send(JSON.stringify({t:"ability", which,
+      castle: which===2 && NET.myCls==="Support" && netShift,
+      lane: NET.myCls==="Ranger" ? hoverLane : undefined}));
+    return;
+  }
+  const S=G.S; if(!S||G.paused) return;
+  const p=S.heroes.find(h=>h.isPlayer); if(!p||!p.alive) return;
+  if(p.cls==="Ranger" && which===2 && p.ch2){ armLane=!armLane; return; }
+  useAbility(S,p,which);
+}
+function updateHud(S){
+  const P0=$("hudParty"); 
+  if(P0.children.length!==4){ P0.innerHTML=""; for(const h of S.heroes){
+    const d=document.createElement("div"); d.className="pcard"; d.dataset.cls=h.cls;
+    d.innerHTML='<div class="top"><span class="nm"></span><span class="hp"></span></div>'+
+      '<div class="hpbar"><div class="hpfill"></div></div><div class="buffs"></div>';
+    d.style.borderLeftColor=CLR_LT[h.cls]; P0.appendChild(d); } }
+  S.heroes.forEach((h,i)=>{
+    const d=P0.children[i];
+    d.classList.toggle("dead",!h.alive);
+    const who=h.name||netNameFor(h.cls);
+    d.querySelector(".nm").textContent=h.cls+(who?" · "+who:(NET.role==="solo"?"":" · bot"))+
+      (h.isPlayer?" · you":"")+" · c"+h.circle;
+    d.querySelector(".hp").textContent=h.alive?Math.ceil(h.hp)+"/"+h.maxHp:"DOWN";
+    d.querySelector(".hpfill").style.width=(100*h.hp/h.maxHp)+"%";
+    d.querySelector(".hpfill").style.background = h.hp/h.maxHp<0.3? "#D94F3D":"#1D9E75";
+    const bf=[];
+    if(h.bulwark>0) bf.push(['BLOCK','#7F77DD',h.bulwark/T.bulwarkDur]);
+    if(h.empower>0) bf.push(['PWR','#F2C94C',h.empower/T.empowerDur]);
+    if(h.taunt>0) bf.push(['TAUNT','#4E74AE',h.taunt/T.tauntDur]);
+    if(h.poison>0) bf.push(['PSN','#8BC34A',h.poison/T.necroOrbDur]);
+    d.querySelector(".buffs").innerHTML=bf.map(b=>'<span class="bpip" style="background:'+b[1]+';opacity:'+(0.5+0.5*b[2])+'">'+b[0]+'</span>').join("");
+  });
+  $("wvNum").textContent = (S.phase==="boss"||S.phase==="bossintro")?"BOSS":S.wave;
+  $("wvLv").textContent = "Level "+S.L.id+" · "+S.L.name;
+  const bb=$("hudBoss");
+  if(S.boss && S.phase==="boss" && !S.boss.dead){ bb.classList.add("on");
+    $("bossName").textContent=S.boss.name+(S.boss.enraged?" — enraged":"");
+    $("bossFill").style.width=(100*S.boss.hp/S.boss.maxHp)+"%"; }
+  else bb.classList.remove("on");
+  const p=S.heroes.find(h=>h.isPlayer);
+  if(p){ const b0=$("ab0"), b1=$("ab1");
+    if(b0){ const f=p.cd1>0? p.cd1/({Tank:T.tauntCd,Healer:T.healCd,Support:T.empowerCd,Ranger:T.volleyCd}[p.cls]):0;
+      b0.querySelector(".sweep").style.height=(f*100)+"%";
+      b0.classList.toggle("ready",p.cd1<=0&&p.alive); }
+    if(b1){ b1.classList.toggle("spent",!p.ch2); b1.classList.toggle("ready",p.ch2&&p.alive);
+      b1.classList.toggle("arming",armLane); }
+    for(const s of $("hudSwap").children) s.classList.toggle("on", s.dataset.cls===p.cls);
+  }
+  $("hudLog").innerHTML = S.log.slice(-5).map(l=>{
+    const cl = l.kind==="death"?"tl-d":l.kind==="revive"?"tl-r":l.kind==="bulwark"?"tl-b":"tl-w";
+    return '<div class="'+cl+'">'+l.text+'</div>'; }).join("");
+  // banners (PRD 11.10)
+  const ban=$("banner");
+  if(S.phase==="pause"){ ban.classList.add("on"); ban.classList.remove("big");
+    $("banT").textContent="Wave complete"; $("banS").textContent="Cooldowns keep running";
+    const held=S.heroes.filter(h=>h.alive&&h.ch2).map(h=>h.cls);
+    $("banC").textContent=Math.ceil(T.wavePause-S.phaseT)+"s"+
+      (held.length? "  ·  still holding: "+held.join(", ") : "  ·  every charge spent"); }
+  else if(S.phase==="bossintro"){ ban.classList.add("on"); ban.classList.add("big");
+    $("banT").textContent="Boss incoming"; $("banS").textContent=S.L.bossName+" is walking the lane";
+    $("banC").textContent=Math.ceil(T.bossPause-S.phaseT)+"s"; }
+  else ban.classList.remove("on");
+}
+
+/* ---- report (PRD 10.4) ---- */
+const WLBL=["Wave 1","Wave 2","Wave 3","Wave 4","Wave 5","Boss"];
+function bars(series, labels, colors, title, fmt){
+  const max=Math.max(1,...series.flatMap(s=>s.data));
+  const W=440,H=150,pad=26, gw=(W-pad)/labels.length;
+  let svg='<div class="chart"><div class="ct">'+title+'</div><svg viewBox="0 0 '+W+' '+H+'" width="100%">';
+  for(let i=0;i<4;i++){ const y=10+ (H-40)*i/3;
+    svg+='<line x1="'+pad+'" y1="'+y+'" x2="'+W+'" y2="'+y+'" stroke="#2a3833"/>'; }
+  labels.forEach((l,i)=>{
+    const x0=pad+i*gw, bw=(gw-8)/series.length;
+    series.forEach((s,j)=>{
+      const v=s.data[i]||0, h=(H-40)*(v/max);
+      svg+='<rect x="'+(x0+4+j*bw)+'" y="'+(H-30-h)+'" width="'+(bw-2)+'" height="'+h+'" fill="'+colors[j%colors.length]+'" rx="1"/>';
+    });
+    svg+='<text x="'+(x0+gw/2)+'" y="'+(H-14)+'" fill="#93A29B" font-size="9" text-anchor="middle">'+l+'</text>';
+  });
+  svg+='<text x="2" y="16" fill="#93A29B" font-size="9">'+(fmt?fmt(max):Math.round(max))+'</text></svg>';
+  svg+='<div style="margin-top:6px;font-size:10px;color:#93A29B">'+series.map((s,j)=>
+    '<span style="color:'+colors[j%colors.length]+'">■</span> '+s.name).join(" &nbsp; ")+'</div></div>';
+  return svg;
+}
+function buildReport(att, L){
+  const won = att.result==="won";
+  $("repTitle").textContent = won? "Level "+L.id+" cleared" : "Level "+L.id+" failed";
+  $("repSub").innerHTML = "Attempt "+att.n+" · ended on "+att.wave+" · "+att.dur.toFixed(0)+"s"+
+    (won?"":" · "+L.bossName+" left at "+Math.round(att.bossPct*100)+"%");
+  $("btnNext").textContent = won ? (G.levelIdx>=2? "Finish" : "Continue to level "+(L.id+1)) : "Continue";
+  $("btnNext").style.display = won? "" : "none";
+  $("btnRetry").textContent = won? "Replay level "+L.id : "Retry level "+L.id;
+
+  // PRD 10.4 — castle damage is the headline and is ranked above deaths. A team that keeps
+  // four heroes alive and loses the castle has lost; the screen has to say so before it says
+  // anything else, because the instinct it is arguing with is "did I survive".
+  const C=att.castle||{hp:0,maxHp:1,gate:0,chip:0,siege:0,waves:[]};
+  const cpct=Math.round(100*C.hp/C.maxHp);
+  const verdict = att.reason==="castle" ? '<span class="pill" style="background:#3A1C18;color:#D94F3D">the castle fell</span>'
+                : att.reason==="wipe"   ? '<span class="pill" style="background:#3A1C18;color:#D94F3D">party wiped — nothing left holding the gate</span>'
+                : '<span class="pill" style="background:#12291F;color:#1D9E75">castle held</span>';
+  let cw='<table><tr><th>Segment</th><th>Castle damage</th><th>Reached the gate</th></tr>';
+  for(let i=0;i<6;i++){ const w=(C.waves&&C.waves[i])||{dmg:0,gate:0};
+    cw+='<tr><td>'+WLBL[i]+'</td><td>'+Math.round(w.dmg)+'</td><td>'+w.gate+'</td></tr>'; }
+  $("repCastle").innerHTML =
+    '<div class="grid2"><div class="chart"><div class="ct">The objective</div><table>'+
+    '<tr><td>Verdict</td><td>'+verdict+'</td></tr>'+
+    '<tr><td>Castle remaining</td><td style="color:'+(cpct<34?"#D94F3D":"#D9D2C2")+';font-weight:800">'+cpct+'% · '+Math.ceil(C.hp)+' / '+C.maxHp+'</td></tr>'+
+    '<tr><td>Damage at the gate</td><td>'+Math.round(C.chip)+'</td></tr>'+
+    '<tr><td>Damage from boss siege</td><td>'+Math.round(C.siege)+'</td></tr>'+
+    '<tr><td>Enemies that reached the gate</td><td>'+C.gate+'</td></tr>'+
+    '<tr><td>Charges never spent</td><td>'+((att.unspent&&att.unspent.length)? '<span style="color:#EFB63F">'+att.unspent.join(", ")+'</span>' : "none")+'</td></tr>'+
+    '</table></div>'+
+    '<div class="chart"><div class="ct">Where the castle lost health</div><table>'+cw+'</table></div></div>';
+
+  let h='<table><tr><th>Hero</th><th>Damage</th><th>Taken</th><th>Healing out</th><th>Healing in</th>'+
+        '<th>Kills</th><th>Ability 1</th><th>Ability 2</th><th>Fate</th></tr>';
+  for(const c of CLASSES){ const s=att.stats[c], d=att.deaths.find(x=>x.cls===c);
+    h+='<tr><td style="color:'+CLR_LT[c]+';font-weight:800">'+c+'</td><td>'+Math.round(s.dmg)+'</td><td>'+Math.round(s.taken)+
+       '</td><td>'+Math.round(s.healG)+'</td><td>'+Math.round(s.healR)+'</td><td>'+s.kills+'</td><td>'+s.a1+'</td><td>'+s.a2+
+       '</td><td>'+(d? '<span class="pill" style="background:#3A1C18;color:#D94F3D">died '+WLBL[Math.max(0,d.wave)]+'</span>':'<span class="pill">survived</span>')+'</td></tr>'; }
+  $("repHeroes").innerHTML=h+'</table>';
+
+  let w='<table><tr><th>Segment</th>'+CLASSES.map(c=>'<th>'+c+' dmg</th>').join("")+'<th>Party damage taken</th><th>Healing</th><th>Deaths</th></tr>';
+  for(let i=0;i<6;i++){
+    const taken=CLASSES.reduce((a,c)=>a+att.stats[c].waves[i].taken,0);
+    const healed=CLASSES.reduce((a,c)=>a+att.stats[c].waves[i].healG,0);
+    const dd=att.deaths.filter(d=>d.wave===i).map(d=>d.cls).join(", ");
+    w+='<tr><td>'+WLBL[i]+'</td>'+CLASSES.map(c=>'<td>'+Math.round(att.stats[c].waves[i].dmg)+'</td>').join("")+
+       '<td>'+Math.round(taken)+'</td><td>'+Math.round(healed)+'</td><td style="color:#D94F3D">'+(dd||"—")+'</td></tr>';
+  }
+  $("repWaves").innerHTML=w+'</table>';
+
+  const hist=G.attempts[L.id];
+  const takenSeries=hist.map((a,i)=>({name:"Attempt "+a.n, data:WLBL.map((_,wi)=>
+    CLASSES.reduce((s,c)=>s+a.stats[c].waves[wi].taken,0))}));
+  const reach=[{name:"Furthest segment reached", data:hist.map(a=>{
+    const idx=WLBL.indexOf(a.wave==="Boss"?"Boss":a.wave); return (a.result==="won"?6:idx+1); })}];
+  const cols=["#EFB63F","#7F77DD","#1D9E75","#D94F3D","#4E74AE"];
+  const castleSeries=[{name:"Castle remaining %", data:hist.map(a=>Math.round(100*((a.castle&&a.castle.hp)||0)/((a.castle&&a.castle.maxHp)||1)))}];
+  const gateSeries=[{name:"Reached the gate", data:hist.map(a=>(a.castle&&a.castle.gate)||0)}];
+  $("repCharts").innerHTML =
+    bars(castleSeries, hist.map(a=>"A"+a.n), ["#D9D2C2"], "Castle remaining, attempt over attempt — the only line that decides anything") +
+    bars(gateSeries, hist.map(a=>"A"+a.n), ["#EFB63F"], "Enemies that reached the gate, attempt over attempt") +
+    bars(takenSeries, WLBL, cols, "Damage taken per segment, attempt over attempt") +
+    bars(reach, hist.map(a=>"A"+a.n), ["#1D9E75"], "How far each attempt got (6 = cleared)") +
+    bars([{name:"Damage dealt", data:CLASSES.map(c=>att.stats[c].dmg)}], CLASSES, ["#4E74AE"], "Damage share this attempt") +
+    bars([{name:"Damage taken", data:CLASSES.map(c=>att.stats[c].taken)}], CLASSES, ["#D94F3D"], "Damage taken this attempt");
+
+  $("repTimeline").innerHTML = att.log.map(l=>{
+    const cl = l.kind==="death"?"tl-d":l.kind==="revive"?"tl-r":l.kind==="bulwark"?"tl-b":"tl-w";
+    return '<div><span style="color:#5d6b64">'+l.t.toFixed(1)+'s · '+l.wave+'</span> — <span class="'+cl+'">'+l.text+'</span></div>';
+  }).join("");
+}
+(function(){ const _b=buildReport;
+  window.buildReport=function(att,L){ _b(att,L);
+    $("repTitle").textContent = att.result==="won" ? "Level cleared"
+      : att.reason==="castle" ? "The castle fell" : "Party wiped";
+    $("repSub").textContent = (att.result==="won"?"Attempt "+att.n+" · ":"Attempt "+att.n+" · reached "+att.wave+" · ")+
+      "castle finished at "+Math.round(100*((att.castle&&att.castle.hp)||0)/((att.castle&&att.castle.maxHp)||1))+"%";
+  };
+})();
+$("btnRetry").onclick=()=>{ show("scrSelect"); buildSelect(); };
+$("btnNext").onclick=()=>{ show("scrSelect"); buildSelect(); };
+$("btnWinAgain").onclick=()=>{ show("scrSelect"); buildSelect(); };
+$("btnWinReport").onclick=()=>show("scrReport");
+
+/* ---- tuning drawer ---- */
+function buildTune(){
+  const box=$("tune");
+  box.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center">'+
+    '<b style="letter-spacing:.14em;font-size:12px">TUNING</b><button class="btn" id="tuneClose">Close</button></div>'+
+    '<div class="sub" style="font-size:11px;margin:8px 0 4px">Changes apply immediately to new spawns and to every hero stat on the next level start.</div>';
+  for(const [grp,keys] of TUNE_GROUPS){
+    box.insertAdjacentHTML("beforeend","<h3>"+grp+"</h3>");
+    for(const [k,min,max,stp] of keys){
+      const d=document.createElement("div"); d.className="sl";
+      d.innerHTML='<label><span>'+k+'</span><span id="v_'+k+'">'+T[k]+'</span></label>'+
+        '<input type="range" min="'+min+'" max="'+max+'" step="'+stp+'" value="'+T[k]+'" data-k="'+k+'">';
+      d.querySelector("input").oninput=(ev)=>{ T[k]=parseFloat(ev.target.value); $("v_"+k).textContent=T[k]; };
+      box.appendChild(d);
+    }
+  }
+  box.insertAdjacentHTML("beforeend",'<div style="height:20px"></div>');
+  $("tuneClose").onclick=()=>$("tune").classList.remove("on");
+}
+buildTune();
+$("btnTune").onclick=()=>$("tune").classList.add("on");
+$("btnSnd").onclick=(e)=>{ SND.on=!SND.on; if(SND.on) ac(); e.target.textContent="Sound: "+(SND.on?"on":"off"); };
+
+/* ---- input ---- */
+window.addEventListener("keydown",e=>{
+  const k=e.key.toLowerCase();
+  if(k==="t"){ $("tune").classList.toggle("on"); return; }
+  if(!G.running) return;
+  if(k===" "){ G.paused=!G.paused; e.preventDefault(); return; }
+  netShift=!!e.shiftKey;
+  if(k==="q") pressAbility(1);
+  if(k==="e"){
+    // Shift+E — Support spends the one Bulwark charge on the castle instead of the party.
+    const pl=G.S&&G.S.heroes.find(h=>h.isPlayer);
+    if(e.shiftKey && pl && pl.cls==="Support" && pl.ch2) pl.castleBulwark=true;
+    pressAbility(2);
+    if(pl) pl.castleBulwark=false;
+  }
+  if(k>="1"&&k<="4") takeOver(CLASSES[+k-1]);
+  if(k==="escape") armLane=false;
+});
+cv.addEventListener("mousemove",e=>{
+  if(!armLane) return;
+  const r=cv.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+  let best=-1,bd=1e9;
+  for(let c=0;c<4;c++){ const z=Math.max(0,Math.min(1,(my/VH-0.13)/0.80));
+    const p=P(COLX[c],z); const d=Math.abs(p.x-mx); if(d<bd){bd=d;best=c;} }
+  hoverLane=bd<90?best:-1;
+});
+cv.addEventListener("click",()=>{
+  if(!armLane||hoverLane<0) return;
+  const p=G.S.heroes.find(h=>h.isPlayer);
+  if(p&&p.cls==="Ranger"){ p.pendingLane=hoverLane; useAbility(G.S,p,2); }
+  armLane=false;
+});
+
+/* ---- main loop ---- */
+let last=performance.now(), acc=0;
+function frame(now){
+  requestAnimationFrame(frame);
+  const dt=Math.min(0.25,(now-last)/1000); last=now;
+  if(NET.role==="client"){
+    // Clients never step the sim. They render whatever the host last sent, so there is
+    // exactly one authority and no chance of two machines disagreeing about the castle.
+    if(G.running && G.S){ render(G.S); updateHud(G.S); audioWatch(G.S); }
+    return;
+  }
+  if(G.running && !G.paused){
+    acc+=dt;
+    while(acc>=DT){ step(G.S); acc-=DT; if(G.S.over){ acc=0; break; } }
+    netHostTick(G.S);
+  }
+  if(G.running){ render(G.S); updateHud(G.S); audioWatch(G.S); if(G.S.over) endLevel(); }
+}
+resize(); requestAnimationFrame(frame);
+netCheckReady();
+netAutoJoin();
+
+/* headless export for the balance harness */
+if(typeof module!=="undefined") module.exports={newSim,step,T,LEVELS,CLASSES,livingHeroes};
+</script>
+</body>
+</html>
